@@ -98,7 +98,7 @@ pnpm build              # 产出 prod 部署目录 build_dir/
 
 进入仓库的 Actions 页面，手动触发 **Build and Release DeepSeek Harness**：
 
-- `dsh_version`（必填）：要打包的 dsh 版本。Actions 表单会预填 `release.yml` 中写死的默认值（`0.1.2-rc.1`）；本仓库当前在 `package.json` 中固定 `@deepseek-ai/dsh` 为 `0.1.6-alpha.2`。需要时可填写 `latest` 或其他明确版本。
+- `dsh_version`（必填）：要打包的 dsh 版本。Actions 表单会预填 `release.yml` 中声明的默认值；当前跟踪的版本以 `package.json` 中固定的 `@deepseek-ai/dsh` 为准。需要时可填写 `latest` 或其他明确版本。
 
 构建完成后会自动创建形如 `dsh-<版本>-<run_id>` 的 GitHub Release，附四个平台的 zip：
 

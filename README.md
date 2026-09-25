@@ -98,7 +98,7 @@ pnpm build              # produce the prod deployment directory build_dir/
 
 Open the repository's Actions page and manually trigger **Build and Release DeepSeek Harness**:
 
-- `dsh_version` (required): the dsh version to package. The Actions form pre-fills the literal default declared in `release.yml` (`0.1.2-rc.1`); this repository currently pins `@deepseek-ai/dsh` at `0.1.6-alpha.2` in `package.json`. Use `latest` or another explicit version when needed.
+- `dsh_version` (required): the dsh version to package. The Actions form pre-fills the literal default declared in `release.yml`; `package.json` pins the version this repository currently tracks. Use `latest` or another explicit version when needed.
 
 The build creates a GitHub Release named `dsh-<version>-<run_id>` with four platform zips:
 
