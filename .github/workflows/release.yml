@@ -7,6 +7,10 @@ on:
         description: '要打包的 dsh 版本 (例如: 0.1.2-rc.1 或 latest)'
         required: true
         default: '0.1.2-rc.1'
+      existing_release:
+        description: '仅为已有 tag 补发 Linux ARM64（不覆盖原资产）'
+        required: false
+        type: string
   workflow_call:
     inputs:
       dsh_version:
@@ -42,6 +46,18 @@ jobs:
         # 依赖链探测要真跑一次 `pnpm install`（在临时目录），所以 preflight 也需要 pnpm。
         uses: pnpm/action-setup@v4
 
+      - name: Validate existing release
+        if: inputs.existing_release != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.existing_release }}
+          VERSION: ${{ inputs.dsh_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^dsh-(.+)-[0-9]+$ ]] && [[ "${BASH_REMATCH[1]}" == "$VERSION" ]]
+          gh release view "$TAG" --json isDraft --jq '.isDraft == false' | grep -qx true
+
       - name: Wait for the npm tarball
         shell: bash
         run: |
@@ -71,18 +87,9 @@ jobs:
     timeout-minutes: 45
     strategy:
       matrix:
-        os: [windows-latest, macos-latest, macos-15-intel, ubuntu-latest, ubuntu-24.04-arm]
-        include:
-          - os: windows-latest
-            artifact_name: deepseek-harness-pkg-windows.zip
-          - os: macos-latest
-            artifact_name: deepseek-harness-pkg-macos-arm64.zip
-          - os: macos-15-intel
-            artifact_name: deepseek-harness-pkg-macos-x64.zip
-          - os: ubuntu-latest
-            artifact_name: deepseek-harness-pkg-linux.zip
-          - os: ubuntu-24.04-arm
-            artifact_name: deepseek-harness-pkg-linux-arm64.zip
+        os: ${{ fromJSON(inputs.existing_release != '' && '["ubuntu-24.04-arm"]' || '["windows-latest","macos-latest","macos-15-intel","ubuntu-latest","ubuntu-24.04-arm"]') }}
+    env:
+      ARTIFACT_NAME: ${{ fromJSON('{"windows-latest":"deepseek-harness-pkg-windows.zip","macos-latest":"deepseek-harness-pkg-macos-arm64.zip","macos-15-intel":"deepseek-harness-pkg-macos-x64.zip","ubuntu-latest":"deepseek-harness-pkg-linux.zip","ubuntu-24.04-arm":"deepseek-harness-pkg-linux-arm64.zip"}')[matrix.os] }}
 
     steps:
       - name: Checkout code
@@ -152,16 +159,16 @@ jobs:
           # 只打包真实部署内容；不要加入已移除的 patches 目录。
           # 7z 对缺失路径返回非零退出码，会导致 Windows 打包失败。
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            7z a ../${{ matrix.artifact_name }} node_modules package.json package-lock.json
+            7z a ../${{ env.ARTIFACT_NAME }} node_modules package.json package-lock.json
           else
-            zip -r ../${{ matrix.artifact_name }} node_modules package.json package-lock.json
+            zip -r ../${{ env.ARTIFACT_NAME }} node_modules package.json package-lock.json
           fi
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.ARTIFACT_NAME }}
 
   release:
     needs: build
@@ -170,7 +177,8 @@ jobs:
     # 卡住的上传会一直占着 runner 直到 6 小时默认上限，白烧额度。
     timeout-minutes: 20
     env:
-      TAG: dsh-${{ inputs.dsh_version || github.event.inputs.dsh_version }}-${{ github.run_id }}
+      TAG: ${{ inputs.existing_release || format('dsh-{0}-{1}', inputs.dsh_version || github.event.inputs.dsh_version, github.run_id) }}
+      EXISTING_RELEASE: ${{ inputs.existing_release }}
       DSH_VERSION: ${{ inputs.dsh_version || github.event.inputs.dsh_version }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -205,12 +213,14 @@ jobs:
           fi
 
       - name: Delete stale drafts for this version
+        if: inputs.existing_release == ''
         # 上一次尝试失败会留下半成品 draft；draft 没有 git ref，既不会被
         # `gh release list --exclude-pre-releases` 看到，也无法用 tag 查到，
         # 必须先清掉，重跑才干净。
         run: node scripts/delete-stale-drafts.mjs --prefix="dsh-${DSH_VERSION}-"
 
       - name: Create release
+        if: inputs.existing_release == ''
         run: |
           set -euo pipefail
           # 不指定 --target，保持与 softprops/action-gh-release 一致的行为
@@ -246,10 +256,16 @@ jobs:
             echo "no assets found under ./artifacts; refusing to publish an empty release" >&2
             exit 1
           fi
+          upload_flags=(--clobber)
+          if [ -n "$EXISTING_RELEASE" ]; then
+            [ "${#assets[@]}" -eq 1 ]
+            [ "$(basename "${assets[0]}")" = deepseek-harness-pkg-linux-arm64.zip ]
+            upload_flags=()
+          fi
           for asset in "${assets[@]}"; do
             attempt=1
             max_attempts=4
-            until gh release upload "$TAG" "$asset" --clobber; do
+            until gh release upload "$TAG" "$asset" "${upload_flags[@]}"; do
               if [ "$attempt" -ge "$max_attempts" ]; then
                 echo "upload failed after ${max_attempts} attempts: $asset" >&2
                 exit 1
