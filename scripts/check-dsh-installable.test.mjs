@@ -34,6 +34,7 @@ process.exit(${exitCode})
     process.platform === 'win32'
       ? `@echo off\r\n${quote(process.execPath)} ${quote(script)} %*\r\n`
       : `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`,
+    { mode: 0o755 },
   )
   return launcher
 }
