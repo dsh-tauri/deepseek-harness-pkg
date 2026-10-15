@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import test from 'node:test'
+import { spawnSync } from 'node:child_process'
 
 const root = new URL('../', import.meta.url)
 const read = path => readFileSync(new URL(path, root), 'utf8')
@@ -62,7 +63,13 @@ test('both release paths build native Linux ARM64 and require five assets', () =
 
 test('backfill validates the tag and never recreates releases or overwrites assets', () => {
   const source = read('.github/workflows/release.yml')
-  assert.match(source, /\[\[ "\$TAG" =~ \^dsh-\(\.\+\)-\[0-9\]\+\$ \]\] && \[\[ "\$\{BASH_REMATCH\[1\]\}" == "\$VERSION" \]\]/)
+  const guard = source.slice(source.indexOf('- name: Validate existing release'), source.indexOf('- name: Wait for the npm tarball'))
+    .split(/\r?\n/).filter(line => /^\s+(set -euo|\[\[)/.test(line)).map(line => line.trim()).join('\n')
+  for (const [TAG, VERSION, status] of [['dsh-0.2.0-rc.2-123', '0.2.0-rc.2', 0], ['v0.2.0-rc.2', '0.2.0-rc.2', 1], ['dsh-0.2.0-rc.2-123', '0.2.1-alpha.4', 1]]) {
+    const result = spawnSync('bash', ['-c', `${guard}\nprintf validated`], { env: { ...process.env, TAG, VERSION }, encoding: 'utf8', timeout: 5000 })
+    assert.equal(result.status, status, result.stderr)
+    assert.equal(result.stdout, status === 0 ? 'validated' : '')
+  }
   for (const name of ['Delete stale drafts for this version', 'Create release']) {
     assert.ok(source.replaceAll('\r\n', '\n').includes(`- name: ${name}\n        if: inputs.existing_release == ''`))
   }

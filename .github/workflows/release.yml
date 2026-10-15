@@ -55,7 +55,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$TAG" =~ ^dsh-(.+)-[0-9]+$ ]] && [[ "${BASH_REMATCH[1]}" == "$VERSION" ]]
+          [[ "$TAG" =~ ^dsh-(.+)-[0-9]+$ ]]
+          [[ "${BASH_REMATCH[1]}" == "$VERSION" ]]
           gh release view "$TAG" --json isDraft --jq '.isDraft == false' | grep -qx true
 
       - name: Wait for the npm tarball
