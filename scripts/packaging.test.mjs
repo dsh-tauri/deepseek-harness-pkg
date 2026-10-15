@@ -29,6 +29,25 @@ test('release workflows do not apply or require removed runtime patches', () => 
   assert.match(sourceRelease, /zip -r [^\r\n]+ node_modules package\.json\r?$/m)
 })
 
+test('both release paths build native Linux ARM64 and require five assets', () => {
+  for (const file of ['release.yml', 'release-from-source.yml']) {
+    const source = read(`.github/workflows/${file}`)
+    assert.match(source, /os: \[[^\]\r\n]*ubuntu-24\.04-arm[^\]\r\n]*\]/, `${file}: ARM64 runner missing`)
+    assert.match(source, /- os: ubuntu-24\.04-arm\r?\n\s+artifact_name: deepseek-harness-pkg-linux-arm64\.zip/, `${file}: ARM64 asset missing`)
+    assert.match(source, /- os: ubuntu-latest\r?\n\s+artifact_name: deepseek-harness-pkg-linux\.zip/, `${file}: x64 asset changed`)
+    assert.match(source, /expected=5\b/, `${file}: release must require five assets`)
+    const smoke = source.indexOf('- name: Verify deployed Linux ARM64 runtime')
+    assert.ok(smoke > source.indexOf('- name: Prune node_modules'), `${file}: smoke must run after pruning`)
+    const step = source.slice(smoke, source.indexOf('- name: Create archive', smoke))
+    assert.match(step, /if: matrix\.os == 'ubuntu-24\.04-arm'/)
+    assert.match(step, /assert\.equal\(process\.arch, 'arm64'\)/)
+    for (const dependency of ['koffi', 'sharp', 'node-pty']) {
+      assert.ok(step.includes(`require('${dependency}')`), `${file}: missing ${dependency} smoke`)
+    }
+    assert.match(step, /node node_modules\/@deepseek-ai\/dsh\/lib\/bin\.js web --help/)
+  }
+})
+
 test('removed patch scripts and their documentation links stay removed', () => {
   for (const file of [
     'scripts/apply-dsh-web-app-patch.mjs',

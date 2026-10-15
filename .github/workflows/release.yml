@@ -71,7 +71,7 @@ jobs:
     timeout-minutes: 45
     strategy:
       matrix:
-        os: [windows-latest, macos-latest, macos-15-intel, ubuntu-latest]
+        os: [windows-latest, macos-latest, macos-15-intel, ubuntu-latest, ubuntu-24.04-arm]
         include:
           - os: windows-latest
             artifact_name: deepseek-harness-pkg-windows.zip
@@ -81,6 +81,8 @@ jobs:
             artifact_name: deepseek-harness-pkg-macos-x64.zip
           - os: ubuntu-latest
             artifact_name: deepseek-harness-pkg-linux.zip
+          - os: ubuntu-24.04-arm
+            artifact_name: deepseek-harness-pkg-linux-arm64.zip
 
     steps:
       - name: Checkout code
@@ -123,6 +125,24 @@ jobs:
         working-directory: build_dir
         # 统一瘦身逻辑收敛到脚本里（跨平台支持），同时打印删除前后的体积构成。
         run: node ../scripts/prune-node-modules.mjs --dir=node_modules
+
+      - name: Verify deployed Linux ARM64 runtime
+        if: matrix.os == 'ubuntu-24.04-arm'
+        shell: bash
+        working-directory: build_dir
+        run: |
+          set -euo pipefail
+          getconf GNU_LIBC_VERSION
+          node - <<'JS'
+          const assert = require('node:assert/strict')
+          assert.equal(process.platform, 'linux')
+          assert.equal(process.arch, 'arm64')
+          require('koffi')
+          require('sharp')
+          assert.equal(typeof require('node-pty').spawn, 'function')
+          JS
+          node node_modules/@deepseek-ai/dsh/lib/bin.js web --help > dsh-web-help.txt
+          grep -q 'Serve the DeepSeek Harness browser UI' dsh-web-help.txt
 
       - name: Create archive
         shell: bash
@@ -243,12 +263,12 @@ jobs:
           done
 
       - name: Verify release assets
-        # 显式确认四个包都在，避免发布出残缺 release。
+        # 显式确认五个包都在，避免发布出残缺 release。
         run: |
           set -euo pipefail
           gh release view "$TAG" --json assets --jq '.assets[] | "\(.size)  \(.name)"'
           count="$(gh release view "$TAG" --json assets --jq '.assets | length')"
-          expected=4
+          expected=5
           if [ "$count" -lt "$expected" ]; then
             echo "expected ${expected} assets on ${TAG}, found ${count}" >&2
             exit 1

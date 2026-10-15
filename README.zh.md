@@ -36,7 +36,8 @@ ZIP 包含 `dsh` CLI 与 Web UI 的生产 npm 依赖，不含 Node.js 可执行�
 | Windows | `deepseek-harness-pkg-windows.zip` |
 | macOS（Apple Silicon） | `deepseek-harness-pkg-macos-arm64.zip` |
 | macOS（Intel） | `deepseek-harness-pkg-macos-x64.zip` |
-| Linux | `deepseek-harness-pkg-linux.zip` |
+| Linux（x64） | `deepseek-harness-pkg-linux.zip` |
+| Linux（ARM64 / aarch64） | `deepseek-harness-pkg-linux-arm64.zip` |
 
 Windows（PowerShell）：
 
@@ -70,14 +71,20 @@ pnpm build              # 将生产依赖部署到 build_dir/
 
 | 工作流 | 输入 / 选择规则 | 结果 |
 | --- | --- | --- |
-| [release.yml](<.github/workflows/release.yml>) | 必填 `dsh_version`：npm 版本或 `latest`；表单默认 `0.1.2-rc.1`，不等于当前固定版本。 | 四个 ZIP；普通 Release `dsh-<version>-<run_id>`（`<version>` 使用输入原值）。 |
+| [release.yml](<.github/workflows/release.yml>) | 必填 `dsh_version`：npm 版本或 `latest`；表单默认 `0.1.2-rc.1`，不等于当前固定版本。 | 五个 ZIP；普通 Release `dsh-<version>-<run_id>`（`<version>` 使用输入原值）。 |
 | [sync-release.yml](<.github/workflows/sync-release.yml>) | 取 npm 所有已发布版本中 semver 最高者，覆盖所有 dist-tag，不只看 `latest`。 | 调用 npm 发布工作流；仅在发布成功后更新 `main` 的清单与锁文件。 |
-| [release-from-source.yml](<.github/workflows/release-from-source.yml>) | 必填 `dsh_version`，不带 `dsh-v`；克隆准确的 `dsh-v<version>` tag，构建并部署运行时依赖闭包。 | 四个 ZIP；预发布 `dsh-src-<version>-<run_id>`；不更新 `main`。 |
+| [release-from-source.yml](<.github/workflows/release-from-source.yml>) | 必填 `dsh_version`，不带 `dsh-v`；克隆准确的 `dsh-v<version>` tag，构建并部署运行时依赖闭包。 | 五个 ZIP；预发布 `dsh-src-<version>-<run_id>`；不更新 `main`。 |
 | [sync-source-release.yml](<.github/workflows/sync-source-release.yml>) | 选择高于 npm 最高版本的上游 GitHub Release 最高版本。 | 调用源码工作流；除非强制重建，否则跳过已有的源码预发布。 |
 
-npm 预检先[等待真实 tarball 可下载](<scripts/wait-for-npm-version.mjs>)，最多 10 分钟。随后以 `pnpm install --ignore-scripts` [实际安装完整依赖闭包](<scripts/check-dsh-installable.mjs>)，有界重试通过后才启动四平台构建矩阵。
+npm 预检先[等待真实 tarball 可下载](<scripts/wait-for-npm-version.mjs>)，最多 10 分钟。随后以 `pnpm install --ignore-scripts` [实际安装完整依赖闭包](<scripts/check-dsh-installable.mjs>)，有界重试通过后才启动五目标构建矩阵。
 
-两条发布路径均会[裁剪产物](<scripts/prune-node-modules.mjs>)并确认四个 ZIP 资产已上传。[体积报告](<scripts/check-artifact-size.mjs>)仅供参考，不作为发布门槛。
+两条发布路径均会[裁剪产物](<scripts/prune-node-modules.mjs>)并确认五个 ZIP 资产已上传。[体积报告](<scripts/check-artifact-size.mjs>)仅供参考，不作为发布门槛。
+
+## Linux ARM64 兼容性
+
+两条发布路径均在 `ubuntu-24.04-arm`（Ubuntu 24.04、glibc 2.39）上使用 Node.js 22.22.0 原生安装、构建，不把 x64 依赖交叉打包为 ARM64。裁剪后会检查架构，加载 `koffi`、`sharp`、`node-pty`，并在该 runner 上运行部署后的 CLI `web --help`。
+
+**尚未验证或保证 Kylin V10 / glibc 2.28 兼容。** 本机编译的原生模块继承 runner 工具链基线；上游预编译二进制另有 glibc / libstdc++ 要求。仅安装 Node.js 或重编一个模块不能证明整个 ZIP 兼容。请使用较新的受支持系统，或在匹配的 ARM64/glibc 2.28 环境中重建、验证完整依赖闭包（包括预编译依赖）后再部署。ZIP 仍需外部 ARM64 Node.js 运行时。
 
 ## 运行时兼容性
 
