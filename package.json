@@ -10,7 +10,9 @@
   "scripts": {
     "start": "dsh web",
     "build": "pnpm deploy --filter . --prod build_dir --legacy",
-    "test": "node --test scripts/*.test.mjs"
+    "build:bun": "bun scripts/build-bun-core.mjs",
+    "test": "node --test scripts/*.test.mjs",
+    "test:bun": "bun test scripts/*.bun.test.mjs"
   },
   "dependencies": {
     "@deepseek-ai/dsh": "0.2.1-alpha.4",

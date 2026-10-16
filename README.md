@@ -55,7 +55,7 @@ The default address is `http://127.0.0.1:3080`; follow the CLI's authenticated a
 
 ## Local build
 
-For maintainers: Node.js `>=22.19.0` and pnpm `11.7.0`, as declared in [package.json](<package.json>). The current `@deepseek-ai/dsh` pin is `0.2.1-alpha.1`; the desktop app selects its own compatible core version.
+For maintainers: Node.js `>=22.19.0` and pnpm `11.7.0`, as declared in [package.json](<package.json>). The current `@deepseek-ai/dsh` pin is `0.2.1-alpha.4`; the desktop app selects its own compatible core version.
 
 ```sh
 pnpm install
@@ -64,6 +64,25 @@ pnpm build              # Deploy production dependencies to build_dir/
 ```
 
 `pnpm build` deploys upstream production dependencies to `build_dir/` without rewriting runtime code; `pnpm start` does not run that deployed output. See the [workspace/build policy](<pnpm-workspace.yaml>) for dependency layout and install-script settings.
+
+## Optional Bun core (experimental)
+
+This is a **pkg-only, opt-in candidate**, not the default release format. Use Bun `1.4.3` and a fresh deployment of exactly `@deepseek-ai/dsh@0.2.1-alpha.4`; other core layouts fail closed. Install native dependencies for the build machine's platform.
+
+```sh
+pnpm build
+# Complete production installation, as the npm release workflow does:
+npm --prefix build_dir install --omit=dev
+pnpm build:bun                         # Or: bun scripts/build-bun-core.mjs /absolute/deploy/root
+pnpm test:bun
+node scripts/smoke-bun-core.mjs build_dir
+```
+
+The [compiler](<scripts/build-bun-core.mjs>) embeds the CLI chunks, host bootstrap and Node PTC adapter into `node_modules/@deepseek-ai/dsh/dsh-core(.exe)`. Only after its version check passes does it atomically replace the CLI entry with a [thin Node launcher](<scripts/bun-launcher.mjs>). Arguments, environment, working directory, inherited stdio and exit status are preserved; the desktop's existing `node …/lib/bin.js` entry does not change. Use a fresh deployment to rebuild or restore the default Node core.
+
+**Keep the entire dependency tree.** This is not a source-free or Node-free single-file distribution: metadata, profiles, Web/client assets, third-party plugins, native modules and Node worker scripts remain on disk. The upstream profile/package router is retained; the [Bun adapter](<scripts/bun-runtime.mjs>) supplies loader mechanics and shared embedded-module identity. PTC TypeScript stripping delegates to the real Node API to preserve its fixed-width wrapper contract. `DSH_NODE` selects that external Node executable (the launcher defaults it to the Node running the launcher). Keep the launcher and core in the desktop-managed process tree.
+
+Limits: only literal ESM dependency edges in profile/linked modules are rewritten; computed imports requiring profile fallback are not covered. Neither release workflow enables this candidate. Local checks do not establish macOS/Linux support, desktop upgrade/self-heal compatibility, or a startup performance gain; validate those before promoting it. The [reference submodules](<.gitmodules>) and temporary task notes are [excluded from deployments](<.npmignore>).
 
 ## Releases and synchronization
 

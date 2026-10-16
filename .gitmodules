@@ -1,0 +1,12 @@
+[submodule "soruce/dsh-bun"]
+	path = soruce/dsh-bun
+	url = https://github.com/evinelias/dsh-bun
+[submodule "soruce/dsh-bun-pkg"]
+	path = soruce/dsh-bun-pkg
+	url = https://github.com/MonshinYu/dsh-bun-pkg
+[submodule "soruce/dsh-desktop"]
+	path = soruce/dsh-desktop
+	url = https://github.com/MonshinYu/dsh-desktop
+[submodule "soruce/dsh-bun-compat-patch"]
+	path = soruce/dsh-bun-compat-patch
+	url = https://github.com/MonshinYu/dsh-bun-compat-patch

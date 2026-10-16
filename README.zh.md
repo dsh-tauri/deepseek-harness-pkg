@@ -55,7 +55,7 @@ macOS / Linux：
 
 ## 本地构建
 
-维护者需要 Node.js `>=22.19.0` 与 pnpm `11.7.0`，版本声明见 [package.json](<package.json>)。当前固定的 `@deepseek-ai/dsh` 版本为 `0.2.1-alpha.1`；桌面应用另按兼容规则选择内核。
+维护者需要 Node.js `>=22.19.0` 与 pnpm `11.7.0`，版本声明见 [package.json](<package.json>)。当前固定的 `@deepseek-ai/dsh` 版本为 `0.2.1-alpha.4`；桌面应用另按兼容规则选择内核。
 
 ```sh
 pnpm install
@@ -64,6 +64,25 @@ pnpm build              # 将生产依赖部署到 build_dir/
 ```
 
 `pnpm build` 将上游生产依赖部署到 `build_dir/`，不改写运行时代码；`pnpm start` 并不运行这份部署产物。依赖布局与安装脚本设置见[工作区/构建策略](<pnpm-workspace.yaml>)。
+
+## 可选 Bun 核心（实验性）
+
+这是**仅修改 pkg、需要主动启用的候选方案**，不替换默认发布格式。使用 Bun `1.4.3`，并准备准确版本为 `@deepseek-ai/dsh@0.2.1-alpha.4` 的全新部署目录；其他内核布局会直接拒绝编译。原生依赖须按构建机器的平台安装。
+
+```sh
+pnpm build
+# 与 npm 发布流程相同，补齐 build_dir 中的生产依赖：
+npm --prefix build_dir install --omit=dev
+pnpm build:bun                         # 或 bun scripts/build-bun-core.mjs /absolute/deploy/root
+pnpm test:bun
+node scripts/smoke-bun-core.mjs build_dir
+```
+
+[编译器](<scripts/build-bun-core.mjs>)将 CLI 分块、主机启动层与 Node PTC 适配器嵌入 `node_modules/@deepseek-ai/dsh/dsh-core(.exe)`。仅在编译产物版本检查通过后，才原子替换 CLI 入口为[薄 Node 启动器](<scripts/bun-launcher.mjs>)。启动器保留命令行参数、环境、工作目录、继承的标准输入输出与退出状态；桌面端原来的 `node …/lib/bin.js` 入口无需改变。重新构建或恢复默认 Node 核心时，请重新生成部署目录。
+
+**必须保留完整依赖树。** 这不是无源码、无 Node 的单文件发行版：包元数据、Profile、Web/客户端资源、第三方插件、原生模块与 Node worker 脚本仍在磁盘上。保留上游 Profile/包路由器，由 [Bun 适配层](<scripts/bun-runtime.mjs>)提供加载机制并保持嵌入模块的共享身份。PTC 的 TypeScript 擦除交给真正的 Node API，保持固定长度包装器的约定。`DSH_NODE` 指定外部 Node 可执行文件；启动器默认使用运行自身的 Node。请保持桌面管理的进程树，不要分离启动器与核心进程。
+
+限制：Profile/链接模块只改写字面量 ESM 依赖边，不覆盖需要 Profile 回退解析的计算式导入。两条发布流程均未启用该候选方案。本地检查不能证明 macOS/Linux、桌面升级/自愈兼容性或启动性能收益，推广前仍需验证。[Git 参考子模块](<.gitmodules>)与临时任务记录[排除在部署产物之外](<.npmignore>)。
 
 ## 发布与同步
 
