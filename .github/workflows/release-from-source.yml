@@ -24,10 +24,12 @@ jobs:
     timeout-minutes: 60
     strategy:
       matrix:
-        os: [windows-latest, macos-latest, macos-15-intel, ubuntu-latest, ubuntu-24.04-arm]
+        os: [windows-latest, windows-11-arm, macos-latest, macos-15-intel, ubuntu-latest, ubuntu-24.04-arm]
         include:
           - os: windows-latest
             artifact_name: deepseek-harness-pkg-windows.zip
+          - os: windows-11-arm
+            artifact_name: deepseek-harness-pkg-windows-arm64.zip
           - os: macos-latest
             artifact_name: deepseek-harness-pkg-macos-arm64.zip
           - os: macos-15-intel
@@ -234,15 +236,35 @@ jobs:
           node node_modules/@deepseek-ai/dsh/lib/bin.js web --help > dsh-web-help.txt
           grep -q 'Serve the DeepSeek Harness browser UI' dsh-web-help.txt
 
+      - name: Verify deployed Windows ARM64 runtime
+        if: matrix.os == 'windows-11-arm'
+        shell: bash
+        working-directory: upstream/build_dir
+        run: |
+          set -euo pipefail
+          node - <<'JS'
+          const assert = require('node:assert/strict')
+          assert.equal(process.platform, 'win32')
+          assert.equal(process.arch, 'arm64')
+          require('koffi')
+          require('sharp')
+          assert.equal(typeof require('node-pty').spawn, 'function')
+          JS
+          node node_modules/@deepseek-ai/dsh/lib/bin.js web --help > dsh-web-help.txt
+          grep -q 'Serve the DeepSeek Harness browser UI' dsh-web-help.txt
+
       - name: Create archive
         shell: bash
         working-directory: upstream/build_dir
         run: |
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            7z a ../../${{ matrix.artifact_name }} node_modules package.json
-          else
-            zip -r ../../${{ matrix.artifact_name }} node_modules package.json
-          fi
+          case "${{ matrix.os }}" in
+            windows-*)
+              7z a ../../${{ matrix.artifact_name }} node_modules package.json
+              ;;
+            *)
+              zip -r ../../${{ matrix.artifact_name }} node_modules package.json
+              ;;
+          esac
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -333,12 +355,12 @@ jobs:
           done
 
       - name: Verify release assets
-        # 显式确认五个包都在，避免发布出残缺 pre-release。
+        # 显式确认六个包都在，避免发布出残缺 pre-release。
         run: |
           set -euo pipefail
           gh release view "$TAG" --json assets --jq '.assets[] | "\(.size)  \(.name)"'
           count="$(gh release view "$TAG" --json assets --jq '.assets | length')"
-          expected=5
+          expected=6
           if [ "$count" -lt "$expected" ]; then
             echo "expected ${expected} assets on ${TAG}, found ${count}" >&2
             exit 1

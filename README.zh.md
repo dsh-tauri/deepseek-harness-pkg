@@ -33,7 +33,8 @@ ZIP 包含 `dsh` CLI 与 Web UI 的生产 npm 依赖，不含 Node.js 可执行�
 
 | 平台 | ZIP |
 | --- | --- |
-| Windows | `deepseek-harness-pkg-windows.zip` |
+| Windows（x64） | `deepseek-harness-pkg-windows.zip` |
+| Windows（ARM64） | `deepseek-harness-pkg-windows-arm64.zip` |
 | macOS（Apple Silicon） | `deepseek-harness-pkg-macos-arm64.zip` |
 | macOS（Intel） | `deepseek-harness-pkg-macos-x64.zip` |
 | Linux（x64） | `deepseek-harness-pkg-linux.zip` |
@@ -71,14 +72,14 @@ pnpm build              # 将生产依赖部署到 build_dir/
 
 | 工作流 | 输入 / 选择规则 | 结果 |
 | --- | --- | --- |
-| [release.yml](<.github/workflows/release.yml>) | 必填 `dsh_version`：npm 版本或 `latest`；表单默认 `0.1.2-rc.1`，不等于当前固定版本。 | 五个 ZIP；普通 Release `dsh-<version>-<run_id>`（`<version>` 使用输入原值）。 |
+| [release.yml](<.github/workflows/release.yml>) | 必填 `dsh_version`：npm 版本或 `latest`；表单默认 `0.1.2-rc.1`，不等于当前固定版本。 | 六个 ZIP；普通 Release `dsh-<version>-<run_id>`（`<version>` 使用输入原值）。 |
 | [sync-release.yml](<.github/workflows/sync-release.yml>) | 取 npm 所有已发布版本中 semver 最高者，覆盖所有 dist-tag，不只看 `latest`。 | 调用 npm 发布工作流；仅在发布成功后更新 `main` 的清单与锁文件。 |
-| [release-from-source.yml](<.github/workflows/release-from-source.yml>) | 必填 `dsh_version`，不带 `dsh-v`；克隆准确的 `dsh-v<version>` tag，构建并部署运行时依赖闭包。 | 五个 ZIP；预发布 `dsh-src-<version>-<run_id>`；不更新 `main`。 |
+| [release-from-source.yml](<.github/workflows/release-from-source.yml>) | 必填 `dsh_version`，不带 `dsh-v`；克隆准确的 `dsh-v<version>` tag，构建并部署运行时依赖闭包。 | 六个 ZIP；预发布 `dsh-src-<version>-<run_id>`；不更新 `main`。 |
 | [sync-source-release.yml](<.github/workflows/sync-source-release.yml>) | 选择高于 npm 最高版本的上游 GitHub Release 最高版本。 | 调用源码工作流；除非强制重建，否则跳过已有的源码预发布。 |
 
-npm 预检先[等待真实 tarball 可下载](<scripts/wait-for-npm-version.mjs>)，最多 10 分钟。随后以 `pnpm install --ignore-scripts` [实际安装完整依赖闭包](<scripts/check-dsh-installable.mjs>)，有界重试通过后才启动五目标构建矩阵。
+npm 预检先[等待真实 tarball 可下载](<scripts/wait-for-npm-version.mjs>)，最多 10 分钟。随后以 `pnpm install --ignore-scripts` [实际安装完整依赖闭包](<scripts/check-dsh-installable.mjs>)，有界重试通过后才启动六目标构建矩阵。
 
-两条发布路径均会[裁剪产物](<scripts/prune-node-modules.mjs>)并确认五个 ZIP 资产已上传。[体积报告](<scripts/check-artifact-size.mjs>)仅供参考，不作为发布门槛。
+两条发布路径均会[裁剪产物](<scripts/prune-node-modules.mjs>)并确认六个 ZIP 资产已上传。[体积报告](<scripts/check-artifact-size.mjs>)仅供参考，不作为发布门槛。Windows ARM64 在 `windows-11-arm` 上原生安装；x64 的 ZIP 名仍是 `deepseek-harness-pkg-windows.zip`。
 
 ## Linux ARM64 兼容性
 
