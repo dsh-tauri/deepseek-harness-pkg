@@ -30,29 +30,37 @@ test('release workflows do not apply or require removed runtime patches', () => 
   assert.match(sourceRelease, /zip -r [^\r\n]+ node_modules package\.json\r?$/m)
 })
 
-test('both release paths build native Linux ARM64 and require five assets', () => {
+test('both release paths build native Linux and Windows ARM64 and require six assets', () => {
   for (const file of ['release.yml', 'release-from-source.yml']) {
     const source = read(`.github/workflows/${file}`)
     if (file === 'release.yml') {
       const matrix = source.match(/os: \$\{\{ fromJSON\(inputs\.existing_release != '' && '([^']+)' \|\| '([^']+)'\) \}\}/)
       assert.ok(matrix, 'conditional build matrix missing')
       assert.deepEqual(JSON.parse(matrix[1]), ['ubuntu-24.04-arm'])
-      assert.deepEqual(JSON.parse(matrix[2]), ['windows-latest', 'macos-latest', 'macos-15-intel', 'ubuntu-latest', 'ubuntu-24.04-arm'])
+      assert.deepEqual(JSON.parse(matrix[2]), ['windows-latest', 'windows-11-arm', 'macos-latest', 'macos-15-intel', 'ubuntu-latest', 'ubuntu-24.04-arm'])
       const assets = JSON.parse(source.match(/ARTIFACT_NAME: \$\{\{ fromJSON\('([^']+)'\)/)[1])
-      assert.deepEqual(Object.values(assets), ['deepseek-harness-pkg-windows.zip', 'deepseek-harness-pkg-macos-arm64.zip', 'deepseek-harness-pkg-macos-x64.zip', 'deepseek-harness-pkg-linux.zip', 'deepseek-harness-pkg-linux-arm64.zip'])
+      assert.deepEqual(Object.values(assets), ['deepseek-harness-pkg-windows.zip', 'deepseek-harness-pkg-windows-arm64.zip', 'deepseek-harness-pkg-macos-arm64.zip', 'deepseek-harness-pkg-macos-x64.zip', 'deepseek-harness-pkg-linux.zip', 'deepseek-harness-pkg-linux-arm64.zip'])
       assert.match(source, /\)\[matrix\.os\]/)
+      assert.match(source, /if \[ -n "\$EXISTING_RELEASE" \]; then\r?\n\s+expected=5/)
+      assert.match(source, /expected=6/)
     } else {
+      assert.match(source, /os: \[[^\]\r\n]*windows-11-arm[^\]\r\n]*\]/, `${file}: Windows ARM64 runner missing`)
+      assert.match(source, /- os: windows-11-arm\r?\n\s+artifact_name: deepseek-harness-pkg-windows-arm64\.zip/, `${file}: Windows ARM64 asset missing`)
+      assert.match(source, /- os: windows-latest\r?\n\s+artifact_name: deepseek-harness-pkg-windows\.zip/, `${file}: Windows x64 asset changed`)
       assert.match(source, /os: \[[^\]\r\n]*ubuntu-24\.04-arm[^\]\r\n]*\]/, `${file}: ARM64 runner missing`)
       assert.match(source, /- os: ubuntu-24\.04-arm\r?\n\s+artifact_name: deepseek-harness-pkg-linux-arm64\.zip/, `${file}: ARM64 asset missing`)
       assert.match(source, /- os: ubuntu-latest\r?\n\s+artifact_name: deepseek-harness-pkg-linux\.zip/, `${file}: x64 asset changed`)
+      assert.match(source, /expected=6\b/, `${file}: release must require six assets`)
+      assert.doesNotMatch(source, /expected=5\b/)
     }
-    assert.match(source, /expected=5\b/, `${file}: release must require five assets`)
     const prune = source.indexOf('- name: Prune node_modules')
     assert.ok(prune >= 0, `${file}: prune step missing`)
     const smoke = source.indexOf('- name: Verify deployed Linux ARM64 runtime')
     assert.ok(smoke > prune, `${file}: smoke must run after pruning`)
     const step = source.slice(smoke, source.indexOf('- name: Create archive', smoke))
     assert.match(step, /if: matrix\.os == 'ubuntu-24\.04-arm'/)
+    assert.match(step, /if: matrix\.os == 'windows-11-arm'/)
+    assert.match(step, /assert\.equal\(process\.platform, 'win32'\)/)
     assert.match(step, /assert\.equal\(process\.arch, 'arm64'\)/)
     for (const dependency of ['koffi', 'sharp', 'node-pty']) {
       assert.ok(step.includes(`require('${dependency}')`), `${file}: missing ${dependency} smoke`)

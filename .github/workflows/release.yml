@@ -88,9 +88,9 @@ jobs:
     timeout-minutes: 45
     strategy:
       matrix:
-        os: ${{ fromJSON(inputs.existing_release != '' && '["ubuntu-24.04-arm"]' || '["windows-latest","macos-latest","macos-15-intel","ubuntu-latest","ubuntu-24.04-arm"]') }}
+        os: ${{ fromJSON(inputs.existing_release != '' && '["ubuntu-24.04-arm"]' || '["windows-latest","windows-11-arm","macos-latest","macos-15-intel","ubuntu-latest","ubuntu-24.04-arm"]') }}
     env:
-      ARTIFACT_NAME: ${{ fromJSON('{"windows-latest":"deepseek-harness-pkg-windows.zip","macos-latest":"deepseek-harness-pkg-macos-arm64.zip","macos-15-intel":"deepseek-harness-pkg-macos-x64.zip","ubuntu-latest":"deepseek-harness-pkg-linux.zip","ubuntu-24.04-arm":"deepseek-harness-pkg-linux-arm64.zip"}')[matrix.os] }}
+      ARTIFACT_NAME: ${{ fromJSON('{"windows-latest":"deepseek-harness-pkg-windows.zip","windows-11-arm":"deepseek-harness-pkg-windows-arm64.zip","macos-latest":"deepseek-harness-pkg-macos-arm64.zip","macos-15-intel":"deepseek-harness-pkg-macos-x64.zip","ubuntu-latest":"deepseek-harness-pkg-linux.zip","ubuntu-24.04-arm":"deepseek-harness-pkg-linux-arm64.zip"}')[matrix.os] }}
 
     steps:
       - name: Checkout code
@@ -152,6 +152,23 @@ jobs:
           node node_modules/@deepseek-ai/dsh/lib/bin.js web --help > dsh-web-help.txt
           grep -q 'Serve the DeepSeek Harness browser UI' dsh-web-help.txt
 
+      - name: Verify deployed Windows ARM64 runtime
+        if: matrix.os == 'windows-11-arm'
+        shell: bash
+        working-directory: build_dir
+        run: |
+          set -euo pipefail
+          node - <<'JS'
+          const assert = require('node:assert/strict')
+          assert.equal(process.platform, 'win32')
+          assert.equal(process.arch, 'arm64')
+          require('koffi')
+          require('sharp')
+          assert.equal(typeof require('node-pty').spawn, 'function')
+          JS
+          node node_modules/@deepseek-ai/dsh/lib/bin.js web --help > dsh-web-help.txt
+          grep -q 'Serve the DeepSeek Harness browser UI' dsh-web-help.txt
+
       - name: Create archive
         shell: bash
         working-directory: build_dir
@@ -159,11 +176,14 @@ jobs:
           # 根据不同平台使用对应的压缩命令
           # 只打包真实部署内容；不要加入已移除的 patches 目录。
           # 7z 对缺失路径返回非零退出码，会导致 Windows 打包失败。
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            7z a ../${{ env.ARTIFACT_NAME }} node_modules package.json package-lock.json
-          else
-            zip -r ../${{ env.ARTIFACT_NAME }} node_modules package.json package-lock.json
-          fi
+          case "${{ matrix.os }}" in
+            windows-*)
+              7z a ../${{ env.ARTIFACT_NAME }} node_modules package.json package-lock.json
+              ;;
+            *)
+              zip -r ../${{ env.ARTIFACT_NAME }} node_modules package.json package-lock.json
+              ;;
+          esac
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -280,12 +300,17 @@ jobs:
           done
 
       - name: Verify release assets
-        # 显式确认五个包都在，避免发布出残缺 release。
+        # 显式确认六个包都在，避免发布出残缺 release。
         run: |
           set -euo pipefail
           gh release view "$TAG" --json assets --jq '.assets[] | "\(.size)  \(.name)"'
           count="$(gh release view "$TAG" --json assets --jq '.assets | length')"
-          expected=5
+          # 补齐旧 release 时矩阵只构建 Linux ARM64，凑齐后仍是五份。
+          if [ -n "$EXISTING_RELEASE" ]; then
+            expected=5
+          else
+            expected=6
+          fi
           if [ "$count" -lt "$expected" ]; then
             echo "expected ${expected} assets on ${TAG}, found ${count}" >&2
             exit 1
