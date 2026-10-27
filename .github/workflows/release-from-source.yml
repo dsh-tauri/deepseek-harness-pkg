@@ -279,7 +279,8 @@ jobs:
           rm -f upstream/build_dir/dsh-web-help.txt
           pnpm dlx @electron/asar@4.3.1 pack upstream/build_dir "$asar"
           # asar list 在 Windows 上打印反斜杠路径，先归一化再断言入口文件在里面。
-          pnpm dlx @electron/asar@4.3.1 list "$asar" | tr '\\' '/' | grep -q '/node_modules/@deepseek-ai/dsh/lib/bin.js'
+          # 不用 grep -q：它匹配到就退出，tr 写 stdout 收到 SIGPIPE，pipefail 下整步失败。
+          pnpm dlx @electron/asar@4.3.1 list "$asar" | tr '\\' '/' | grep -F '/node_modules/@deepseek-ai/dsh/lib/bin.js' > /dev/null
           ls -lh "$asar"
         env:
           MATRIX_ARTIFACT: ${{ matrix.artifact_name }}
