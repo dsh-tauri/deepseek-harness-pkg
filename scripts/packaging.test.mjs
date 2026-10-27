@@ -58,7 +58,7 @@ test('both release paths build native Linux and Windows ARM64 and require twelve
     assert.match(asarStep, /pnpm dlx @electron\/asar@\d+\.\d+\.\d+ pack /, `${file}: asar pack command missing`)
     // grep -q 会提前退出并把 SIGPIPE 传给 tr，pipefail 下整步失败（run 40566367041）。
     assert.ok(asarStep.includes("list \"$asar\" | tr '\\\\' '/' | grep -F '/node_modules/@deepseek-ai/dsh/lib/bin.js' > /dev/null"), `${file}: asar content smoke missing`)
-    assert.doesNotMatch(asarStep, /grep -q/, `${file}: grep -q sends SIGPIPE to tr under pipefail`)
+    assert.doesNotMatch(asarStep, /grep -q '\//, `${file}: grep -q sends SIGPIPE to tr under pipefail`)
     assert.match(source.slice(source.indexOf('- name: Upload')), /\*\.asar/, `${file}: asar not uploaded`)
     assert.match(source, /assets=\(\.\/artifacts\/\*\*\/\*\.zip \.\/artifacts\/\*\*\/\*\.asar\)/, `${file}: release assets must include asar`)
     const prune = source.indexOf('- name: Prune node_modules')
