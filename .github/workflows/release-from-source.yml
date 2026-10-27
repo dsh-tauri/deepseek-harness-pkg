@@ -270,6 +270,7 @@ jobs:
         shell: bash
         # 与 ZIP 同内容的单文件 Electron 资源。Electron 的 fs 能直接读 asar，
         # 普通 Node 不能，所以 ZIP 仍然是给外部 Node 用的那一份。
+        # asar 自身不压缩（约 400 MiB / 平台），外面套一层 zip 后上传体积才回到 ~140 MiB。
         # 用 pnpm dlx 而不是 devDependency：本 job 只安装 upstream 的依赖，
         # 且这一版 dsh 可能还没发布到 npm，装不了本仓库的依赖。
         run: |
@@ -281,7 +282,12 @@ jobs:
           # asar list 在 Windows 上打印反斜杠路径，先归一化再断言入口文件在里面。
           # 不用 grep -q：它匹配到就退出，tr 写 stdout 收到 SIGPIPE，pipefail 下整步失败。
           pnpm dlx @electron/asar@4.3.1 list "$asar" | tr '\\' '/' | grep -F '/node_modules/@deepseek-ai/dsh/lib/bin.js' > /dev/null
-          ls -lh "$asar"
+          case "${{ matrix.os }}" in
+            windows-*) 7z a "$asar.zip" "$asar" > /dev/null ;;
+            *) zip -q -r "$asar.zip" "$asar" ;;
+          esac
+          rm -f "$asar"
+          ls -lh "$asar.zip"
         env:
           MATRIX_ARTIFACT: ${{ matrix.artifact_name }}
 
@@ -291,7 +297,7 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: |
             ${{ matrix.artifact_name }}
-            *.asar
+            *.asar.zip
 
   release:
     needs: build
@@ -354,7 +360,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          assets=(./artifacts/**/*.zip ./artifacts/**/*.asar)
+          assets=(./artifacts/**/*.zip)
           if [ "${#assets[@]}" -eq 0 ]; then
             echo "no assets found under ./artifacts; refusing to publish an empty release" >&2
             exit 1

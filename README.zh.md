@@ -25,22 +25,22 @@
 
 ## 快速开始
 
-ZIP 包含 `dsh` CLI 与 Web UI 的生产 npm 依赖，不含 Node.js 可执行文件，也不是桌面安装包。`.asar` 是同一份内容的 Electron 单文件资源，供 Electron 应用直接挂载。
+ZIP 包含 `dsh` CLI 与 Web UI 的生产 npm 依赖，不含 Node.js 可执行文件，也不是桌面安装包。`.asar.zip` 里是同一份内容的 Electron 单文件资源：解压得到 `.asar`，供 Electron 应用直接挂载。asar 自身不压缩（每平台约 400 MiB），外面那层 ZIP 只为把下载体积压回 ~140 MiB。
 
 **要求：** 自行安装 Node.js `>=22.19.0` 并加入 `PATH`（CI 使用 `22.22.0`）；使用 ZIP 无需全局安装 pnpm。
 
 从 [Releases](https://github.com/dsh-tauri/deepseek-harness-pkg/releases) 下载对应平台的 ZIP，解压后在解压根目录打开终端。
 
-| 平台 | ZIP（外部 Node） | asar（Electron） |
+| 平台 | ZIP（外部 Node） | asar.zip（Electron，先解压） |
 | --- | --- | --- |
-| Windows（x64） | `deepseek-harness-pkg-windows.zip` | `deepseek-harness-pkg-windows.asar` |
-| Windows（ARM64） | `deepseek-harness-pkg-windows-arm64.zip` | `deepseek-harness-pkg-windows-arm64.asar` |
-| macOS（Apple Silicon） | `deepseek-harness-pkg-macos-arm64.zip` | `deepseek-harness-pkg-macos-arm64.asar` |
-| macOS（Intel） | `deepseek-harness-pkg-macos-x64.zip` | `deepseek-harness-pkg-macos-x64.asar` |
-| Linux（x64） | `deepseek-harness-pkg-linux.zip` | `deepseek-harness-pkg-linux.asar` |
-| Linux（ARM64 / aarch64） | `deepseek-harness-pkg-linux-arm64.zip` | `deepseek-harness-pkg-linux-arm64.asar` |
+| Windows（x64） | `deepseek-harness-pkg-windows.zip` | `deepseek-harness-pkg-windows.asar.zip` |
+| Windows（ARM64） | `deepseek-harness-pkg-windows-arm64.zip` | `deepseek-harness-pkg-windows-arm64.asar.zip` |
+| macOS（Apple Silicon） | `deepseek-harness-pkg-macos-arm64.zip` | `deepseek-harness-pkg-macos-arm64.asar.zip` |
+| macOS（Intel） | `deepseek-harness-pkg-macos-x64.zip` | `deepseek-harness-pkg-macos-x64.asar.zip` |
+| Linux（x64） | `deepseek-harness-pkg-linux.zip` | `deepseek-harness-pkg-linux.asar.zip` |
+| Linux（ARM64 / aarch64） | `deepseek-harness-pkg-linux-arm64.zip` | `deepseek-harness-pkg-linux-arm64.asar.zip` |
 
-asar 内的目录结构与 ZIP 相同（`node_modules/` + `package.json`），但只有 Electron 的 `fs` 能读：普通 Node 需要 ZIP，或先用 `npx @electron/asar extract deepseek-harness-pkg-linux.asar out` 解包。asar 没有 `unpacked` 目录，`node-pty` 的 `spawn-helper` 这类需要真正落在磁盘上的可执行文件同样要先解包后才能 spawn。
+`.asar.zip` 解压后是单个 `deepseek-harness-pkg-<平台>.asar`，内部目录结构与 ZIP 相同（`node_modules/` + `package.json`）。但只有 Electron 的 `fs` 能读 asar：普通 Node 需要 ZIP，或先 `npx @electron/asar extract deepseek-harness-pkg-linux.asar out` 解包。asar 里没有 `unpacked` 目录，`node-pty` 的 `spawn-helper` 这类需要真正落在磁盘上的可执行文件同样要先解包后才能 spawn。
 
 Windows（PowerShell）：
 
@@ -74,14 +74,14 @@ pnpm build              # 将生产依赖部署到 build_dir/
 
 | 工作流 | 输入 / 选择规则 | 结果 |
 | --- | --- | --- |
-| [release.yml](<.github/workflows/release.yml>) | 必填 `dsh_version`：npm 版本或 `latest`；表单默认 `0.1.2-rc.1`，不等于当前固定版本。 | 六个 ZIP + 六个 asar；普通 Release `dsh-<version>-<run_id>`（`<version>` 使用输入原值）。 |
+| [release.yml](<.github/workflows/release.yml>) | 必填 `dsh_version`：npm 版本或 `latest`；表单默认 `0.1.2-rc.1`，不等于当前固定版本。 | 六个 ZIP + 六个 asar.zip；普通 Release `dsh-<version>-<run_id>`（`<version>` 使用输入原值）。 |
 | [sync-release.yml](<.github/workflows/sync-release.yml>) | 取 npm 所有已发布版本中 semver 最高者，覆盖所有 dist-tag，不只看 `latest`。 | 调用 npm 发布工作流；仅在发布成功后更新 `main` 的清单与锁文件。 |
-| [release-from-source.yml](<.github/workflows/release-from-source.yml>) | 必填 `dsh_version`，不带 `dsh-v`；克隆准确的 `dsh-v<version>` tag，构建并部署运行时依赖闭包。 | 六个 ZIP + 六个 asar；预发布 `dsh-src-<version>-<run_id>`；不更新 `main`。 |
+| [release-from-source.yml](<.github/workflows/release-from-source.yml>) | 必填 `dsh_version`，不带 `dsh-v`；克隆准确的 `dsh-v<version>` tag，构建并部署运行时依赖闭包。 | 六个 ZIP + 六个 asar.zip；预发布 `dsh-src-<version>-<run_id>`；不更新 `main`。 |
 | [sync-source-release.yml](<.github/workflows/sync-source-release.yml>) | 选择高于 npm 最高版本的上游 GitHub Release 最高版本。 | 调用源码工作流；除非强制重建，否则跳过已有的源码预发布。 |
 
 npm 预检先[等待真实 tarball 可下载](<scripts/wait-for-npm-version.mjs>)，最多 10 分钟。随后以 `pnpm install --ignore-scripts` [实际安装完整依赖闭包](<scripts/check-dsh-installable.mjs>)，有界重试通过后才启动六目标构建矩阵。
 
-两条发布路径均会[裁剪产物](<scripts/prune-node-modules.mjs>)、按平台打包同名 asar，并确认十二个资产已上传。[体积报告](<scripts/check-artifact-size.mjs>)仅供参考，不作为发布门槛。Windows ARM64 在 `windows-11-arm` 上原生安装；x64 的 ZIP 名仍是 `deepseek-harness-pkg-windows.zip`。
+两条发布路径均会[裁剪产物](<scripts/prune-node-modules.mjs>)、按平台打包同名 asar（压缩成 `*.asar.zip`），并确认十二个资产已上传。[体积报告](<scripts/check-artifact-size.mjs>)仅供参考，不作为发布门槛。Windows ARM64 在 `windows-11-arm` 上原生安装；x64 的 ZIP 名仍是 `deepseek-harness-pkg-windows.zip`。
 
 ## Linux ARM64 兼容性
 

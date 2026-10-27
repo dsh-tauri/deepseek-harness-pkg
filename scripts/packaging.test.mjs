@@ -59,8 +59,13 @@ test('both release paths build native Linux and Windows ARM64 and require twelve
     // grep -q 会提前退出并把 SIGPIPE 传给 tr，pipefail 下整步失败（run 40566367041）。
     assert.ok(asarStep.includes("list \"$asar\" | tr '\\\\' '/' | grep -F '/node_modules/@deepseek-ai/dsh/lib/bin.js' > /dev/null"), `${file}: asar content smoke missing`)
     assert.doesNotMatch(asarStep, /grep -q '\//, `${file}: grep -q sends SIGPIPE to tr under pipefail`)
-    assert.match(source.slice(source.indexOf('- name: Upload')), /\*\.asar/, `${file}: asar not uploaded`)
-    assert.match(source, /assets=\(\.\/artifacts\/\*\*\/\*\.zip \.\/artifacts\/\*\*\/\*\.asar\)/, `${file}: release assets must include asar`)
+    // asar 只有 zip 外壳才上传（asar 自身不压缩，约 400 MiB）。
+    assert.match(asarStep, /7z a "\$asar\.zip" "\$asar"/, `${file}: Windows asar zip missing`)
+    assert.match(asarStep, /zip -q -r "\$asar\.zip" "\$asar"/, `${file}: asar zip missing`)
+    assert.match(asarStep, /rm -f "\$asar"\r?\n/, `${file}: raw asar must be removed before upload`)
+    assert.match(source.slice(source.indexOf('- name: Upload')), /\*\.asar\.zip/, `${file}: asar zip not uploaded`)
+    assert.match(source, /assets=\(\.\/artifacts\/\*\*\/\*\.zip\)/, `${file}: release assets must be zip-only`)
+    assert.doesNotMatch(source, /artifacts\/\*\*\/\*\.asar\)/, `${file}: raw asar must not be published`)
     const prune = source.indexOf('- name: Prune node_modules')
     assert.ok(prune >= 0, `${file}: prune step missing`)
     const smoke = source.indexOf('- name: Verify deployed Linux ARM64 runtime')
