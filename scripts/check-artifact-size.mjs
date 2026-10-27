@@ -17,7 +17,7 @@
 // 让膨胀不会被无声吞掉；真要定位来源用 scripts/zip-footprint.mjs。
 //
 // 用法:
-//   node scripts/check-artifact-size.mjs                 # 报告 ./artifacts/**/*.zip
+//   node scripts/check-artifact-size.mjs                 # 报告 ./artifacts/**/*.{zip,asar}
 //   node scripts/check-artifact-size.mjs --dir=./artifacts
 import { readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -33,7 +33,7 @@ const dir = resolve(argValue('dir', 'artifacts'))
 const MiB = 1024 * 1024
 const mib = (bytes) => (bytes / MiB).toFixed(1)
 
-function collectZips(root) {
+function collectArtifacts(root) {
   const found = []
   const walk = (d) => {
     let entries
@@ -46,14 +46,14 @@ function collectZips(root) {
     for (const entry of entries) {
       const full = join(d, entry.name)
       if (entry.isDirectory()) walk(full)
-      else if (entry.isFile() && entry.name.endsWith('.zip')) found.push(full)
+      else if (entry.isFile() && /\.(?:zip|asar)$/.test(entry.name)) found.push(full)
     }
   }
   walk(root)
   return found
 }
 
-const rows = collectZips(dir)
+const rows = collectArtifacts(dir)
   .map((path) => {
     try {
       return { path, size: statSync(path).size }
@@ -68,7 +68,7 @@ const total = rows.reduce((sum, row) => sum + row.size, 0)
 
 if (rows.length === 0) {
   // 不拦发布，但要让这种情况显式可见：没有产物本身就是异常信号。
-  console.log(`[artifact-size] 警告：${dir} 下没有找到任何 .zip`)
+  console.log(`[artifact-size] 警告：${dir} 下没有找到任何 .zip / .asar`)
   process.exit(0)
 }
 

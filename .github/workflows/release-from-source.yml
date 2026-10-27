@@ -266,11 +266,31 @@ jobs:
               ;;
           esac
 
+      - name: Create Electron asar
+        shell: bash
+        # 与 ZIP 同内容的单文件 Electron 资源。Electron 的 fs 能直接读 asar，
+        # 普通 Node 不能，所以 ZIP 仍然是给外部 Node 用的那一份。
+        # 用 pnpm dlx 而不是 devDependency：本 job 只安装 upstream 的依赖，
+        # 且这一版 dsh 可能还没发布到 npm，装不了本仓库的依赖。
+        run: |
+          set -euo pipefail
+          asar="${MATRIX_ARTIFACT%.zip}.asar"
+          # 平台验证步骤会往 build_dir 写 dsh-web-help.txt；ZIP 不装它，asar 也保持一致。
+          rm -f upstream/build_dir/dsh-web-help.txt
+          pnpm dlx @electron/asar@4.3.1 pack upstream/build_dir "$asar"
+          # asar list 在 Windows 上打印反斜杠路径，先归一化再断言入口文件在里面。
+          pnpm dlx @electron/asar@4.3.1 list "$asar" | tr '\\' '/' | grep -q '/node_modules/@deepseek-ai/dsh/lib/bin.js'
+          ls -lh "$asar"
+        env:
+          MATRIX_ARTIFACT: ${{ matrix.artifact_name }}
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}
+          path: |
+            ${{ matrix.artifact_name }}
+            *.asar
 
   release:
     needs: build
@@ -333,7 +353,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          assets=(./artifacts/**/*.zip)
+          assets=(./artifacts/**/*.zip ./artifacts/**/*.asar)
           if [ "${#assets[@]}" -eq 0 ]; then
             echo "no assets found under ./artifacts; refusing to publish an empty release" >&2
             exit 1
@@ -355,12 +375,12 @@ jobs:
           done
 
       - name: Verify release assets
-        # 显式确认六个包都在，避免发布出残缺 pre-release。
+        # 显式确认十二个包都在，避免发布出残缺 pre-release。
         run: |
           set -euo pipefail
           gh release view "$TAG" --json assets --jq '.assets[] | "\(.size)  \(.name)"'
           count="$(gh release view "$TAG" --json assets --jq '.assets | length')"
-          expected=6
+          expected=12
           if [ "$count" -lt "$expected" ]; then
             echo "expected ${expected} assets on ${TAG}, found ${count}" >&2
             exit 1

@@ -8,7 +8,7 @@ on:
         required: true
         default: '0.1.2-rc.1'
       existing_release:
-        description: '仅为已有 tag 补发 Linux ARM64（不覆盖原资产）'
+        description: '已有 tag：为它补齐缺失的资产（含 asar），不覆盖已有资产'
         required: false
         type: string
   workflow_call:
@@ -88,7 +88,8 @@ jobs:
     timeout-minutes: 45
     strategy:
       matrix:
-        os: ${{ fromJSON(inputs.existing_release != '' && '["ubuntu-24.04-arm"]' || '["windows-latest","windows-11-arm","macos-latest","macos-15-intel","ubuntu-latest","ubuntu-24.04-arm"]') }}
+        # 补发模式也跑全矩阵：要往已有 tag 上补 asar，就必须有六个平台的原生内容。
+        os: [windows-latest, windows-11-arm, macos-latest, macos-15-intel, ubuntu-latest, ubuntu-24.04-arm]
     env:
       ARTIFACT_NAME: ${{ fromJSON('{"windows-latest":"deepseek-harness-pkg-windows.zip","windows-11-arm":"deepseek-harness-pkg-windows-arm64.zip","macos-latest":"deepseek-harness-pkg-macos-arm64.zip","macos-15-intel":"deepseek-harness-pkg-macos-x64.zip","ubuntu-latest":"deepseek-harness-pkg-linux.zip","ubuntu-24.04-arm":"deepseek-harness-pkg-linux-arm64.zip"}')[matrix.os] }}
 
@@ -185,11 +186,29 @@ jobs:
               ;;
           esac
 
+      - name: Create Electron asar
+        shell: bash
+        # 与 ZIP 同内容的单文件 Electron 资源。Electron 的 fs 能直接读 asar，
+        # 普通 Node 不能，所以 ZIP 仍然是给外部 Node 用的那一份。
+        # 用 pnpm dlx 而不是 devDependency：release-from-source 不会安装本仓库
+        # 的依赖（npm 上可能还没有这一版 dsh），两条路径要能跑同一条命令。
+        run: |
+          set -euo pipefail
+          asar="${ARTIFACT_NAME%.zip}.asar"
+          # 平台验证步骤会往 build_dir 写 dsh-web-help.txt；ZIP 不装它，asar 也保持一致。
+          rm -f build_dir/dsh-web-help.txt
+          pnpm dlx @electron/asar@4.3.1 pack build_dir "$asar"
+          # asar list 在 Windows 上打印反斜杠路径，先归一化再断言入口文件在里面。
+          pnpm dlx @electron/asar@4.3.1 list "$asar" | tr '\\' '/' | grep -q '/node_modules/@deepseek-ai/dsh/lib/bin.js'
+          ls -lh "$asar"
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: ${{ env.ARTIFACT_NAME }}
+          path: |
+            ${{ env.ARTIFACT_NAME }}
+            *.asar
 
   release:
     needs: build
@@ -272,16 +291,25 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          assets=(./artifacts/**/*.zip)
+          assets=(./artifacts/**/*.zip ./artifacts/**/*.asar)
           if [ "${#assets[@]}" -eq 0 ]; then
             echo "no assets found under ./artifacts; refusing to publish an empty release" >&2
             exit 1
           fi
           upload_flags=(--clobber)
           if [ -n "$EXISTING_RELEASE" ]; then
-            [ "${#assets[@]}" -eq 1 ]
-            [ "$(basename "${assets[0]}")" = deepseek-harness-pkg-linux-arm64.zip ]
+            # 补发模式：已有资产一个都不碰，只上传这个 tag 上还缺的名字。
+            # 这样「给旧 release 补 asar」和「补某一个平台的 ZIP」是同一条路径。
             upload_flags=()
+            present="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+            missing=()
+            for asset in "${assets[@]}"; do
+              grep -qxF "$(basename "$asset")" <<< "$present" || missing+=("$asset")
+            done
+            assets=("${missing[@]}")
+            if [ "${#assets[@]}" -eq 0 ]; then
+              echo "every asset already exists on ${TAG}; nothing to backfill"
+            fi
           fi
           for asset in "${assets[@]}"; do
             attempt=1
@@ -300,17 +328,12 @@ jobs:
           done
 
       - name: Verify release assets
-        # 显式确认六个包都在，避免发布出残缺 release。
+        # 显式确认十二个包都在，避免发布出残缺 release（补发模式也补到 12 份）。
         run: |
           set -euo pipefail
           gh release view "$TAG" --json assets --jq '.assets[] | "\(.size)  \(.name)"'
           count="$(gh release view "$TAG" --json assets --jq '.assets | length')"
-          # 补齐旧 release 时矩阵只构建 Linux ARM64，凑齐后仍是五份。
-          if [ -n "$EXISTING_RELEASE" ]; then
-            expected=5
-          else
-            expected=6
-          fi
+          expected=12
           if [ "$count" -lt "$expected" ]; then
             echo "expected ${expected} assets on ${TAG}, found ${count}" >&2
             exit 1

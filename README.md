@@ -25,20 +25,22 @@
 
 ## Quick start
 
-These ZIPs contain production npm dependencies for the `dsh` CLI and web UI, not a Node.js binary or a desktop installer.
+These ZIPs contain production npm dependencies for the `dsh` CLI and web UI, not a Node.js binary or a desktop installer. Each `.asar` is the same tree as a single-file Electron resource for Electron apps to mount directly.
 
 **Requirements:** external Node.js `>=22.19.0` on `PATH` (CI uses `22.22.0`); no global pnpm installation is needed to use a ZIP.
 
 Download the matching ZIP from [Releases](https://github.com/dsh-tauri/deepseek-harness-pkg/releases), extract it, and open a terminal in the extracted root.
 
-| Platform | ZIP |
-| --- | --- |
-| Windows (x64) | `deepseek-harness-pkg-windows.zip` |
-| Windows (ARM64) | `deepseek-harness-pkg-windows-arm64.zip` |
-| macOS (Apple Silicon) | `deepseek-harness-pkg-macos-arm64.zip` |
-| macOS (Intel) | `deepseek-harness-pkg-macos-x64.zip` |
-| Linux (x64) | `deepseek-harness-pkg-linux.zip` |
-| Linux (ARM64 / aarch64) | `deepseek-harness-pkg-linux-arm64.zip` |
+| Platform | ZIP (external Node) | asar (Electron) |
+| --- | --- | --- |
+| Windows (x64) | `deepseek-harness-pkg-windows.zip` | `deepseek-harness-pkg-windows.asar` |
+| Windows (ARM64) | `deepseek-harness-pkg-windows-arm64.zip` | `deepseek-harness-pkg-windows-arm64.asar` |
+| macOS (Apple Silicon) | `deepseek-harness-pkg-macos-arm64.zip` | `deepseek-harness-pkg-macos-arm64.asar` |
+| macOS (Intel) | `deepseek-harness-pkg-macos-x64.zip` | `deepseek-harness-pkg-macos-x64.asar` |
+| Linux (x64) | `deepseek-harness-pkg-linux.zip` | `deepseek-harness-pkg-linux.asar` |
+| Linux (ARM64 / aarch64) | `deepseek-harness-pkg-linux-arm64.zip` | `deepseek-harness-pkg-linux-arm64.asar` |
+
+The asar mirrors the ZIP layout (`node_modules/` + `package.json`) but only Electron's patched `fs` can read it: plain Node needs the ZIP, or `npx @electron/asar extract deepseek-harness-pkg-linux.asar out` first. There is no `unpacked` directory, so executables that must exist on disk — `node-pty`'s `spawn-helper` — also need extracting before they can be spawned.
 
 Windows (PowerShell):
 
@@ -72,14 +74,14 @@ Both sync workflows run every **6 hours** and support manual inputs: optional `v
 
 | Workflow | Input / selection | Result |
 | --- | --- | --- |
-| [release.yml](<.github/workflows/release.yml>) | Required `dsh_version`: an npm version or `latest`; form default `0.1.2-rc.1` is not the current pin. | Six ZIPs; regular release `dsh-<version>-<run_id>` (`<version>` uses the input verbatim). |
+| [release.yml](<.github/workflows/release.yml>) | Required `dsh_version`: an npm version or `latest`; form default `0.1.2-rc.1` is not the current pin. | Six ZIPs + six asars; regular release `dsh-<version>-<run_id>` (`<version>` uses the input verbatim). |
 | [sync-release.yml](<.github/workflows/sync-release.yml>) | Highest semver among all published npm versions, covering all dist-tags, not only `latest`. | Calls the npm release workflow; updates `main`'s manifest and lockfile only after successful publication. |
-| [release-from-source.yml](<.github/workflows/release-from-source.yml>) | Required `dsh_version` without `dsh-v`; clones the exact `dsh-v<version>` tag and builds/deploys its runtime closure. | Six ZIPs; pre-release `dsh-src-<version>-<run_id>`; does not update `main`. |
+| [release-from-source.yml](<.github/workflows/release-from-source.yml>) | Required `dsh_version` without `dsh-v`; clones the exact `dsh-v<version>` tag and builds/deploys its runtime closure. | Six ZIPs + six asars; pre-release `dsh-src-<version>-<run_id>`; does not update `main`. |
 | [sync-source-release.yml](<.github/workflows/sync-source-release.yml>) | Highest upstream GitHub release version newer than the highest npm version. | Calls the source workflow; skips an existing source pre-release unless forced. |
 
 npm preflight [waits for the actual tarball](<scripts/wait-for-npm-version.mjs>) for up to 10 minutes. It then [installs the complete dependency closure](<scripts/check-dsh-installable.mjs>) with `pnpm install --ignore-scripts` and bounded retries before starting the six-target matrix.
 
-Both release paths [prune the output](<scripts/prune-node-modules.mjs>) and verify six uploaded ZIP assets. [Size reports](<scripts/check-artifact-size.mjs>) are informational, not release gates. Windows ARM64 is installed natively on `windows-11-arm`; the x64 ZIP name stays `deepseek-harness-pkg-windows.zip`.
+Both release paths [prune the output](<scripts/prune-node-modules.mjs>), pack a same-named asar per platform, and verify twelve uploaded assets. [Size reports](<scripts/check-artifact-size.mjs>) are informational, not release gates. Windows ARM64 is installed natively on `windows-11-arm`; the x64 ZIP name stays `deepseek-harness-pkg-windows.zip`.
 
 ## Linux ARM64 compatibility
 

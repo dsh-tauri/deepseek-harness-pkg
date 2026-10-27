@@ -30,19 +30,16 @@ test('release workflows do not apply or require removed runtime patches', () => 
   assert.match(sourceRelease, /zip -r [^\r\n]+ node_modules package\.json\r?$/m)
 })
 
-test('both release paths build native Linux and Windows ARM64 and require six assets', () => {
+test('both release paths build native Linux and Windows ARM64 and require twelve assets', () => {
   for (const file of ['release.yml', 'release-from-source.yml']) {
     const source = read(`.github/workflows/${file}`)
     if (file === 'release.yml') {
-      const matrix = source.match(/os: \$\{\{ fromJSON\(inputs\.existing_release != '' && '([^']+)' \|\| '([^']+)'\) \}\}/)
-      assert.ok(matrix, 'conditional build matrix missing')
-      assert.deepEqual(JSON.parse(matrix[1]), ['ubuntu-24.04-arm'])
-      assert.deepEqual(JSON.parse(matrix[2]), ['windows-latest', 'windows-11-arm', 'macos-latest', 'macos-15-intel', 'ubuntu-latest', 'ubuntu-24.04-arm'])
+      // 补发模式同样跑全矩阵：往已有 tag 上补 asar 需要六个平台的原生内容。
+      assert.match(source, /os: \[windows-latest, windows-11-arm, macos-latest, macos-15-intel, ubuntu-latest, ubuntu-24\.04-arm\]/, 'full build matrix missing')
       const assets = JSON.parse(source.match(/ARTIFACT_NAME: \$\{\{ fromJSON\('([^']+)'\)/)[1])
       assert.deepEqual(Object.values(assets), ['deepseek-harness-pkg-windows.zip', 'deepseek-harness-pkg-windows-arm64.zip', 'deepseek-harness-pkg-macos-arm64.zip', 'deepseek-harness-pkg-macos-x64.zip', 'deepseek-harness-pkg-linux.zip', 'deepseek-harness-pkg-linux-arm64.zip'])
       assert.match(source, /\)\[matrix\.os\]/)
-      assert.match(source, /if \[ -n "\$EXISTING_RELEASE" \]; then\r?\n\s+expected=5/)
-      assert.match(source, /expected=6/)
+      assert.match(source, /expected=12/)
     } else {
       assert.match(source, /os: \[[^\]\r\n]*windows-11-arm[^\]\r\n]*\]/, `${file}: Windows ARM64 runner missing`)
       assert.match(source, /- os: windows-11-arm\r?\n\s+artifact_name: deepseek-harness-pkg-windows-arm64\.zip/, `${file}: Windows ARM64 asset missing`)
@@ -50,9 +47,18 @@ test('both release paths build native Linux and Windows ARM64 and require six as
       assert.match(source, /os: \[[^\]\r\n]*ubuntu-24\.04-arm[^\]\r\n]*\]/, `${file}: ARM64 runner missing`)
       assert.match(source, /- os: ubuntu-24\.04-arm\r?\n\s+artifact_name: deepseek-harness-pkg-linux-arm64\.zip/, `${file}: ARM64 asset missing`)
       assert.match(source, /- os: ubuntu-latest\r?\n\s+artifact_name: deepseek-harness-pkg-linux\.zip/, `${file}: x64 asset changed`)
-      assert.match(source, /expected=6\b/, `${file}: release must require six assets`)
-      assert.doesNotMatch(source, /expected=5\b/)
+      assert.match(source, /expected=12\b/, `${file}: release must require twelve assets`)
+      assert.doesNotMatch(source, /expected=(?:5|6)\b/, `${file}: stale asset count`)
     }
+    // 每个平台除了 ZIP 还要产出同名 .asar（Electron 单文件资源），并一起上传。
+    const asar = source.indexOf('- name: Create Electron asar')
+    assert.ok(asar > source.indexOf('- name: Create archive'), `${file}: asar step missing or runs before the ZIP`)
+    const asarStep = source.slice(asar, source.indexOf('- name: Upload', asar))
+    assert.match(asarStep, /\$\{[A-Za-z_]+\%\.[^}]*\}\.asar"/, `${file}: asar name must be derived from the ZIP name`)
+    assert.match(asarStep, /pnpm dlx @electron\/asar@\d+\.\d+\.\d+ pack /, `${file}: asar pack command missing`)
+    assert.ok(asarStep.includes("list \"$asar\" | tr '\\\\' '/' | grep -q '/node_modules/@deepseek-ai/dsh/lib/bin.js'"), `${file}: asar content smoke missing`)
+    assert.match(source.slice(source.indexOf('- name: Upload')), /\*\.asar/, `${file}: asar not uploaded`)
+    assert.match(source, /assets=\(\.\/artifacts\/\*\*\/\*\.zip \.\/artifacts\/\*\*\/\*\.asar\)/, `${file}: release assets must include asar`)
     const prune = source.indexOf('- name: Prune node_modules')
     assert.ok(prune >= 0, `${file}: prune step missing`)
     const smoke = source.indexOf('- name: Verify deployed Linux ARM64 runtime')
@@ -81,8 +87,9 @@ test('backfill validates the tag and never recreates releases or overwrites asse
   for (const name of ['Delete stale drafts for this version', 'Create release']) {
     assert.ok(source.replaceAll('\r\n', '\n').includes(`- name: ${name}\n        if: inputs.existing_release == ''`))
   }
-  assert.match(source, /\[ "\$\{#assets\[@\]\}" -eq 1 \]/)
-  assert.match(source, /\[ "\$\(basename "\$\{assets\[0\]\}"\)" = deepseek-harness-pkg-linux-arm64\.zip \]/)
+  // 补发只上传 tag 上还缺的名字，不 clobber 已有资产。
+  assert.match(source, /present="\$\(gh release view "\$TAG" --json assets --jq '\.assets\[\]\.name'\)"/)
+  assert.match(source, /grep -qxF "\$\(basename "\$asset"\)" <<< "\$present" \|\| missing\+=\("\$asset"\)/)
   assert.match(source, /if \[ -n "\$EXISTING_RELEASE" \]; then[\s\S]*?upload_flags=\(\)/)
   assert.match(source, /gh release upload "\$TAG" "\$asset" "\$\{upload_flags\[@\]\}"/)
 })
