@@ -91,7 +91,7 @@ Both release paths install and build natively on `ubuntu-24.04-arm` (Ubuntu 24.0
 
 ## Runtime compatibility
 
-Local builds and both release paths preserve upstream runtime code. The former LAN override and Codex HTML-error patches have been removed so optional customizations do not block packaging when upstream code changes. Host safety checks and provider error formatting now follow the bundled upstream versions. Codex errors may therefore include raw HTML edge-response bodies; treat error logs as potentially sensitive.
+Local builds and both release paths keep upstream runtime code except for a small, pinned patch set in [patches/](<patches/>): the renderer `SlotOutlet` export, the desktop plugin page hiding `dsh-tauri-*` bundles, the OpenCode session-id request header, and relaxed explicit workspace membership. These are what the desktop app used to rewrite at launch; baking them in here is what lets a read-only asar core run. Everything else follows the bundled upstream version, so Codex errors may still include raw HTML edge-response bodies; treat error logs as potentially sensitive.
 
 For LAN access, consult the bundled CLI's help for its version-specific flags. Recent upstream releases require one concrete local IPv4 or IPv6 address rather than a wildcard such as `0.0.0.0`; the former LAN opt-in environment variable no longer overrides that policy.
 

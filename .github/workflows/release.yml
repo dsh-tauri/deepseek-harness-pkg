@@ -122,6 +122,12 @@ jobs:
           cd build_dir
           npm install --omit=dev
 
+      - name: Verify core patches survived the deploy
+        shell: bash
+        # npm install 在 lockfile 与磁盘一致时只做校验，不会把已打补丁的包重解包；
+        # 一旦上游发行方式变化让它开始覆盖，这一步会先失败，而不是把未打补丁的内核发出去。
+        run: node scripts/check-core-patches.mjs --dir=build_dir
+
       - name: Report deploy footprint
         shell: bash
         # build_dir 此时是 deploy 后的真实内容。这一步只报告、不删除，用于回答
