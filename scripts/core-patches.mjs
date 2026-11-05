@@ -17,12 +17,6 @@ export const PATCHES = [
     patch: '@deepseek-ai__dsh-llm-pi-ai@0.2.2-rc.1.patch',
     markers: ['/* dsh-tauri-desktop: OpenCode Go session header */', 'isOpenCodeRoute(options.provider, baseURL)'],
   },
-  {
-    name: '@deepseek-ai/dsh-workspace',
-    file: 'lib/index.js',
-    patch: '@deepseek-ai__dsh-workspace@0.2.2-rc.1.patch',
-    markers: ['/* dsh-tauri-worktree: relaxed explicit workspace membership */'],
-  },
 ]
 
 export function parseHunks(patch) {
