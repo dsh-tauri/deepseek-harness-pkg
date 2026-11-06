@@ -6,14 +6,15 @@ import { spawnSync } from 'node:child_process'
 const root = new URL('../', import.meta.url)
 const read = path => readFileSync(new URL(path, root), 'utf8')
 
-test('local builds only deploy upstream production dependencies', () => {
+test('local builds deploy upstream production dependencies plus the pinned core patches', () => {
   const manifest = JSON.parse(read('package.json'))
   assert.equal(manifest.scripts.build, 'pnpm deploy --filter . --prod build_dir --legacy')
   assert.equal(manifest.pnpm?.patchedDependencies, undefined)
-  assert.doesNotMatch(read('pnpm-workspace.yaml'), /patchedDependencies|apply-.*patch/)
+  const workspace = read('pnpm-workspace.yaml')
+  assert.match(workspace, /^patchedDependencies:$/m, '核心补丁必须在 pnpm-workspace.yaml 注册')
 })
 
-test('release workflows do not apply or require removed runtime patches', () => {
+test('release workflows no longer carry the removed ad-hoc runtime patches', () => {
   const workflowDir = new URL('.github/workflows/', root)
   for (const file of readdirSync(workflowDir).filter(file => file.endsWith('.yml'))) {
     const source = read(`.github/workflows/${file}`)
@@ -25,6 +26,7 @@ test('release workflows do not apply or require removed runtime patches', () => 
   }
 
   const sourceRelease = read('.github/workflows/release-from-source.yml')
+  // 源码路径按上游 tag 原样构建，不套用 main 上的补丁；它只在 ZIP 里放 node_modules + package.json。
   assert.doesNotMatch(sourceRelease, /\bpatches\b/)
   assert.match(sourceRelease, /7z a [^\r\n]+ node_modules package\.json\r?$/m)
   assert.match(sourceRelease, /zip -r [^\r\n]+ node_modules package\.json\r?$/m)

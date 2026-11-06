@@ -13,3 +13,8 @@ dangerouslyAllowAllBuilds: true
 
 # pnpm 11 默认的发布年龄门禁会拒绝“太新”的依赖，关闭它保证上游发布后立即可同步。
 minimumReleaseAge: 0
+
+patchedDependencies:
+  '@deepseek-ai/dsh-client-ui-plugin-manager@>=0.2.2-rc.1': patches/@deepseek-ai__dsh-client-ui-plugin-manager@0.2.2-rc.1.patch
+  '@deepseek-ai/dsh-client-ui-renderer@>=0.2.2-rc.1': patches/@deepseek-ai__dsh-client-ui-renderer@0.2.2-rc.1.patch
+  '@deepseek-ai/dsh-llm-pi-ai@>=0.2.2-rc.1': patches/@deepseek-ai__dsh-llm-pi-ai@0.2.2-rc.1.patch

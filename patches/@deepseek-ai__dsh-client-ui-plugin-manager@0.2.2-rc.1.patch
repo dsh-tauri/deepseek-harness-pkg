@@ -1,0 +1,13 @@
+diff --git a/lib/client.js b/lib/client.js
+index 84c06034b4781cfadb96bd9468007924beddd61e..5fff65bf99eaafd6920e87f2d96722053b659bbe 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -6963,7 +6963,7 @@ window.__ModuleLoader__.load({
+ 				};
+ 			}, [highlight, clearHighlight]);
+ 			const noticeLine = state.notice === null || state.notice.kind === "refresh-failed" ? null : noticeText(state.notice, t);
+-			const listed = state.packages.filter((pkg) => !HIDDEN_BUNDLES.has(pkg.name) && (pkg.listedByDefault !== false || pkg.enabled || pkg.installed || rowsRunning(pkg)) && (pkg.installed || pkg.official || pkg.error !== void 0));
++			const listed = state.packages.filter((pkg) => !HIDDEN_BUNDLES.has(pkg.name) && !pkg.name.startsWith("dsh-tauri") && (pkg.listedByDefault !== false || pkg.enabled || pkg.installed || rowsRunning(pkg)) && (pkg.installed || pkg.official || pkg.error !== void 0));
+ 			const mine = listed.filter((pkg) => !pkg.official);
+ 			const official = listed.filter((pkg) => pkg.official);
+ 			const ordered = orderOptionalBundles(official);
