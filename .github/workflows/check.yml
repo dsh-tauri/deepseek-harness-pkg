@@ -34,6 +34,25 @@ jobs:
         env:
           ELECTRON_RUN_AS_NODE: '1'
         run: node native-runtime/node_modules/electron/cli.js scripts/check-native-runtime.mjs native-runtime
+      - name: Probe hardened macOS library validation
+        if: matrix.node == '24.21.0' && startsWith(matrix.os, 'macos')
+        shell: bash
+        env:
+          ELECTRON_RUN_AS_NODE: '1'
+        run: |
+          app="native-runtime/node_modules/electron/dist/Electron.app"
+          for validation in enabled disabled; do
+            extra=''
+            if [ "$validation" = disabled ]; then
+              extra='<key>com.apple.security.cs.disable-library-validation</key><true/>'
+            fi
+            printf '%s\n' "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>com.apple.security.cs.allow-jit</key><true/>$extra</dict></plist>" > probe-entitlements.plist
+            codesign --force --deep --options runtime --sign - --entitlements probe-entitlements.plist "$app"
+            codesign --display --entitlements :- "$app"
+            status=0
+            node native-runtime/node_modules/electron/cli.js scripts/check-native-runtime.mjs native-runtime || status=$?
+            echo "library_validation=$validation exit=$status"
+          done
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
