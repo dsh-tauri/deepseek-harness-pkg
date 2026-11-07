@@ -69,6 +69,14 @@ jobs:
           status=0
           "${binary[0]}" scripts/check-native-runtime.mjs native-runtime || status=$?
           echo "published_desktop_exit=$status"
+          curl --fail --location --retry 3 -o "$RUNNER_TEMP/core.zip" https://github.com/dsh-tauri/deepseek-harness-pkg/releases/download/dsh-0.2.2-rc.1-42351650673/deepseek-harness-pkg-macos-arm64.asar.zip
+          unzip -q "$RUNNER_TEMP/core.zip" -d "$RUNNER_TEMP/core"
+          curl --fail --location -o "$RUNNER_TEMP/asar-native.cjs" https://raw.githubusercontent.com/dsh-tauri/deepseek-harness-desktop/a79bcc56/apps/desktop/src-tauri/src/service/core/asar-native.cjs
+          archive=("$RUNNER_TEMP/core"/*.asar)
+          export DSH_CORE_ARCHIVE="${archive[0]}"
+          export DSH_CORE_NATIVE_CACHE="$RUNNER_TEMP/asar-native-cache"
+          export NARB_NATIVE_CACHE_DIR="$RUNNER_TEMP/loader-native-cache"
+          "${binary[0]}" --require "$RUNNER_TEMP/asar-native.cjs" scripts/check-native-runtime.mjs "${archive[0]}"
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
