@@ -9,6 +9,74 @@ permissions:
   contents: read
 
 jobs:
+  native-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel, windows-latest, ubuntu-latest]
+        node: [22.22.0, 24.21.0]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install pinned native loader
+        run: npm install --prefix native-runtime --no-audit --no-fund node-addon-require-builtin@0.1.9
+      - name: Verify native internal module access
+        run: node scripts/check-native-runtime.mjs native-runtime
+      - name: Install desktop Electron runtime
+        if: matrix.node == '24.21.0'
+        run: npm install --prefix native-runtime --no-audit --no-fund electron@44.7.0
+      - name: Verify Electron native internal module access
+        if: matrix.node == '24.21.0'
+        env:
+          ELECTRON_RUN_AS_NODE: '1'
+        run: node native-runtime/node_modules/electron/cli.js scripts/check-native-runtime.mjs native-runtime
+      - name: Probe hardened macOS library validation
+        if: matrix.node == '24.21.0' && startsWith(matrix.os, 'macos')
+        shell: bash
+        env:
+          ELECTRON_RUN_AS_NODE: '1'
+        run: |
+          app="native-runtime/node_modules/electron/dist/Electron.app"
+          for validation in enabled disabled; do
+            extra=''
+            if [ "$validation" = disabled ]; then
+              extra='<key>com.apple.security.cs.disable-library-validation</key><true/>'
+            fi
+            printf '%s\n' "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>com.apple.security.cs.allow-jit</key><true/>$extra</dict></plist>" > probe-entitlements.plist
+            codesign --force --deep --options runtime --sign - --entitlements probe-entitlements.plist "$app"
+            codesign --display --entitlements :- "$app"
+            status=0
+            node native-runtime/node_modules/electron/cli.js scripts/check-native-runtime.mjs native-runtime || status=$?
+            echo "library_validation=$validation exit=$status"
+          done
+      - name: Replay native load in published signed desktop
+        if: matrix.node == '24.21.0' && matrix.os == 'macos-latest'
+        shell: bash
+        env:
+          ELECTRON_RUN_AS_NODE: '1'
+        run: |
+          curl --fail --location --retry 3 -o "$RUNNER_TEMP/desktop.dmg" https://github.com/dsh-tauri/deepseek-harness-desktop/releases/download/v0.31.0/Deepseek.Harness.Desktop_0.31.0_aarch64.dmg
+          mkdir "$RUNNER_TEMP/desktop-release"
+          printf 'Y\n' | hdiutil attach "$RUNNER_TEMP/desktop.dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/desktop-release"
+          trap 'hdiutil detach "$RUNNER_TEMP/desktop-release"' EXIT
+          inner=("$RUNNER_TEMP/desktop-release"/*.app/Contents/Resources/runtime/darwin-*/*.app)
+          codesign --display --verbose=4 --entitlements :- "${inner[0]}"
+          binary=("${inner[0]}"/Contents/MacOS/*)
+          status=0
+          "${binary[0]}" scripts/check-native-runtime.mjs native-runtime || status=$?
+          echo "published_desktop_exit=$status"
+          curl --fail --location --retry 3 -o "$RUNNER_TEMP/core.zip" https://github.com/dsh-tauri/deepseek-harness-pkg/releases/download/dsh-0.2.2-rc.1-42351650673/deepseek-harness-pkg-macos-arm64.asar.zip
+          unzip -q "$RUNNER_TEMP/core.zip" -d "$RUNNER_TEMP/core"
+          curl --fail --location -o "$RUNNER_TEMP/asar-native.cjs" https://raw.githubusercontent.com/dsh-tauri/deepseek-harness-desktop/a79bcc56/apps/desktop/src-tauri/src/service/core/asar-native.cjs
+          archive=("$RUNNER_TEMP/core"/*.asar)
+          export DSH_CORE_ARCHIVE="${archive[0]}"
+          export DSH_CORE_NATIVE_CACHE="$RUNNER_TEMP/asar-native-cache"
+          export NARB_NATIVE_CACHE_DIR="$RUNNER_TEMP/loader-native-cache"
+          "${binary[0]}" --require "$RUNNER_TEMP/asar-native.cjs" scripts/check-native-runtime.mjs "${archive[0]}"
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
