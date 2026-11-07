@@ -26,6 +26,14 @@ jobs:
         run: npm install --prefix native-runtime --no-audit --no-fund node-addon-require-builtin@0.1.9
       - name: Verify native internal module access
         run: node scripts/check-native-runtime.mjs native-runtime
+      - name: Install desktop Electron runtime
+        if: matrix.node == '24.21.0'
+        run: npm install --prefix native-runtime --no-audit --no-fund electron@44.7.0
+      - name: Verify Electron native internal module access
+        if: matrix.node == '24.21.0'
+        env:
+          ELECTRON_RUN_AS_NODE: '1'
+        run: node native-runtime/node_modules/electron/cli.js scripts/check-native-runtime.mjs native-runtime
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
