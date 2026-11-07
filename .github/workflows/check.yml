@@ -53,6 +53,22 @@ jobs:
             node native-runtime/node_modules/electron/cli.js scripts/check-native-runtime.mjs native-runtime || status=$?
             echo "library_validation=$validation exit=$status"
           done
+      - name: Replay native load in published signed desktop
+        if: matrix.node == '24.21.0' && matrix.os == 'macos-latest'
+        shell: bash
+        env:
+          ELECTRON_RUN_AS_NODE: '1'
+        run: |
+          curl --fail --location --retry 3 -o "$RUNNER_TEMP/desktop.dmg" https://github.com/dsh-tauri/deepseek-harness-desktop/releases/download/v0.31.0/Deepseek.Harness.Desktop_0.31.0_aarch64.dmg
+          mkdir "$RUNNER_TEMP/desktop-release"
+          hdiutil attach "$RUNNER_TEMP/desktop.dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/desktop-release"
+          trap 'hdiutil detach "$RUNNER_TEMP/desktop-release"' EXIT
+          inner=("$RUNNER_TEMP/desktop-release"/*.app/Contents/Resources/runtime/darwin-*/*.app)
+          codesign --display --verbose=4 --entitlements :- "4{inner[0]}"
+          binary=("4{inner[0]}"/Contents/MacOS/*)
+          status=0
+          "4{binary[0]}" scripts/check-native-runtime.mjs native-runtime || status=$?
+          echo "published_desktop_exit=$status"
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
