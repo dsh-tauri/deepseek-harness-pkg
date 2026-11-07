@@ -64,10 +64,10 @@ jobs:
           hdiutil attach "$RUNNER_TEMP/desktop.dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/desktop-release"
           trap 'hdiutil detach "$RUNNER_TEMP/desktop-release"' EXIT
           inner=("$RUNNER_TEMP/desktop-release"/*.app/Contents/Resources/runtime/darwin-*/*.app)
-          codesign --display --verbose=4 --entitlements :- "4{inner[0]}"
-          binary=("4{inner[0]}"/Contents/MacOS/*)
+          codesign --display --verbose=4 --entitlements :- "${inner[0]}"
+          binary=("${inner[0]}"/Contents/MacOS/*)
           status=0
-          "4{binary[0]}" scripts/check-native-runtime.mjs native-runtime || status=$?
+          "${binary[0]}" scripts/check-native-runtime.mjs native-runtime || status=$?
           echo "published_desktop_exit=$status"
   check:
     runs-on: ubuntu-latest
