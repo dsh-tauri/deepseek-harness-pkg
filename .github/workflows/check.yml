@@ -9,6 +9,23 @@ permissions:
   contents: read
 
 jobs:
+  native-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel, windows-latest, ubuntu-latest]
+        node: [22.22.0, 24.21.0]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install pinned native loader
+        run: npm install --prefix native-runtime --no-audit --no-fund node-addon-require-builtin@0.1.9
+      - name: Verify native internal module access
+        run: node scripts/check-native-runtime.mjs native-runtime
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
