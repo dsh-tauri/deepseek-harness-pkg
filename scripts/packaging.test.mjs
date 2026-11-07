@@ -12,6 +12,17 @@ test('local builds deploy upstream production dependencies plus the pinned core 
   assert.equal(manifest.pnpm?.patchedDependencies, undefined)
   const workspace = read('pnpm-workspace.yaml')
   assert.match(workspace, /^patchedDependencies:$/m, '核心补丁必须在 pnpm-workspace.yaml 注册')
+
+  // Keep desktop runtime patches on an open-ended lower-bound range so future
+  // core releases continue to receive them.
+  for (const name of [
+    '@deepseek-ai/dsh-client-ui-renderer',
+    '@deepseek-ai/dsh-client-ui-plugin-manager',
+    '@deepseek-ai/dsh-client-ui-conversation',
+    '@deepseek-ai/dsh-llm-pi-ai',
+  ]) {
+    assert.ok(workspace.includes(`'${name}@>=0.2.2-rc.1':`), `${name} must keep an open-ended patch range`)
+  }
 })
 
 test('release workflows no longer carry the removed ad-hoc runtime patches', () => {

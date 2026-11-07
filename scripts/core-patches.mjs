@@ -12,6 +12,16 @@ export const PATCHES = [
     markers: ['!pkg.name.startsWith("dsh-tauri")'],
   },
   {
+    name: '@deepseek-ai/dsh-client-ui-conversation',
+    file: 'lib/client.js',
+    patch: '@deepseek-ai__dsh-client-ui-conversation@0.2.2-rc.1.patch',
+    // 未分组会话的可输入性：inert 放宽 + 客户端能力标记，两者必须同时在。
+    markers: [
+      '/* dsh-tauri-desktop: composer stays usable for a session outside every workspace */',
+      'document.documentElement.setAttribute("data-dsh-composer-cwd", "1")',
+    ],
+  },
+  {
     name: '@deepseek-ai/dsh-llm-pi-ai',
     file: 'lib/index.js',
     patch: '@deepseek-ai__dsh-llm-pi-ai@0.2.2-rc.1.patch',

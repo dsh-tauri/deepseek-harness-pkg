@@ -15,6 +15,7 @@ dangerouslyAllowAllBuilds: true
 minimumReleaseAge: 0
 
 patchedDependencies:
+  '@deepseek-ai/dsh-client-ui-conversation@>=0.2.2-rc.1': patches/@deepseek-ai__dsh-client-ui-conversation@0.2.2-rc.1.patch
   '@deepseek-ai/dsh-client-ui-plugin-manager@>=0.2.2-rc.1': patches/@deepseek-ai__dsh-client-ui-plugin-manager@0.2.2-rc.1.patch
   '@deepseek-ai/dsh-client-ui-renderer@>=0.2.2-rc.1': patches/@deepseek-ai__dsh-client-ui-renderer@0.2.2-rc.1.patch
   '@deepseek-ai/dsh-llm-pi-ai@>=0.2.2-rc.1': patches/@deepseek-ai__dsh-llm-pi-ai@0.2.2-rc.1.patch

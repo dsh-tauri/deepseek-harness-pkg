@@ -5,6 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
+  '@deepseek-ai/dsh-client-ui-conversation@>=0.2.2-rc.1': bb43e76ca80ea82ce5f3ad186c520423408d12be8c42b8d47135823f18dc5539
   '@deepseek-ai/dsh-client-ui-plugin-manager@>=0.2.2-rc.1': b284be1eb5e6296ade6b3b8965670c6185c5ccbfc9ced242d9f22c0f7da38a80
   '@deepseek-ai/dsh-client-ui-renderer@>=0.2.2-rc.1': b8c6e099c1f9529e205e8ccf215fb91f8ec2aeff1711e362d17b01222b1088b7
   '@deepseek-ai/dsh-llm-pi-ai@>=0.2.2-rc.1': 24b9b9f6b6a0a265677b58c2c52287e1fc2f664c3b88f7a71ad62697d3fdd330
@@ -5222,7 +5223,7 @@ snapshots:
     dependencies:
       '@deepseek-ai/cordis': 4.1.0(@deepseek-ai/cordis-plugin-include@1.1.0)(@deepseek-ai/cordis-plugin-loader@1.1.0)
 
-  '@deepseek-ai/dsh-client-ui-conversation@0.2.2-rc.1(@deepseek-ai/cordis@4.1.0)':
+  '@deepseek-ai/dsh-client-ui-conversation@0.2.2-rc.1(patch_hash=bb43e76ca80ea82ce5f3ad186c520423408d12be8c42b8d47135823f18dc5539)(@deepseek-ai/cordis@4.1.0)':
     dependencies:
       '@deepseek-ai/cordis': 4.1.0(@deepseek-ai/cordis-plugin-include@1.1.0)(@deepseek-ai/cordis-plugin-loader@1.1.0)
       '@deepseek-ai/schemastery': 3.19.0
@@ -7719,7 +7720,7 @@ snapshots:
       '@deepseek-ai/dsh-client-ui-chat': 0.2.2-rc.1(@deepseek-ai/cordis@4.1.0)
       '@deepseek-ai/dsh-client-ui-commands': 0.2.2-rc.1(@deepseek-ai/cordis@4.1.0)
       '@deepseek-ai/dsh-client-ui-context-menu': 0.2.2-rc.1(@deepseek-ai/cordis@4.1.0)
-      '@deepseek-ai/dsh-client-ui-conversation': 0.2.2-rc.1(@deepseek-ai/cordis@4.1.0)
+      '@deepseek-ai/dsh-client-ui-conversation': 0.2.2-rc.1(patch_hash=bb43e76ca80ea82ce5f3ad186c520423408d12be8c42b8d47135823f18dc5539)(@deepseek-ai/cordis@4.1.0)
       '@deepseek-ai/dsh-client-ui-cordis': 0.2.2-rc.1(@deepseek-ai/cordis@4.1.0)
       '@deepseek-ai/dsh-client-ui-deliverables': 0.2.2-rc.1(@deepseek-ai/cordis@4.1.0)
       '@deepseek-ai/dsh-client-ui-directory-picker-browse': 0.2.2-rc.1(@deepseek-ai/cordis@4.1.0)
