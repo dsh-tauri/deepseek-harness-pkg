@@ -9,6 +9,7 @@ patchedDependencies:
   '@deepseek-ai/dsh-client-ui-plugin-manager@>=0.2.2-rc.1': b284be1eb5e6296ade6b3b8965670c6185c5ccbfc9ced242d9f22c0f7da38a80
   '@deepseek-ai/dsh-client-ui-renderer@>=0.2.2-rc.1': b8c6e099c1f9529e205e8ccf215fb91f8ec2aeff1711e362d17b01222b1088b7
   '@deepseek-ai/dsh-llm-pi-ai@>=0.2.2-rc.1': 24b9b9f6b6a0a265677b58c2c52287e1fc2f664c3b88f7a71ad62697d3fdd330
+  sharp@0.35.5: fa2da680b1e2eb89e3b2993d7e1dc20e675dd53a979b64e4beb298fbb1787a1c
 
 importers:
 
@@ -17,6 +18,9 @@ importers:
       '@deepseek-ai/dsh':
         specifier: 0.2.2-rc.1
         version: 0.2.2-rc.1(4f8a8ac4ac9dd613baef3e7670d9878d)
+      '@img/sharp-wasm32':
+        specifier: 0.35.5
+        version: 0.35.5
       koffi:
         specifier: ^3.1.4
         version: 3.1.4
@@ -4947,7 +4951,7 @@ snapshots:
       '@deepseek-ai/dsh-home-paths': 0.2.2-rc.1(@deepseek-ai/cordis@4.1.0)
       '@deepseek-ai/dsh-lazy-require': 0.2.2-rc.1(@deepseek-ai/cordis@4.1.0)
       '@deepseek-ai/schemastery': 3.19.0
-      sharp: 0.35.5
+      sharp: 0.35.5(patch_hash=fa2da680b1e2eb89e3b2993d7e1dc20e675dd53a979b64e4beb298fbb1787a1c)
     transitivePeerDependencies:
       - '@types/node'
 
@@ -8256,7 +8260,6 @@ snapshots:
   '@emnapi/runtime@1.11.3':
     dependencies:
       tslib: 2.8.1
-    optional: true
 
   '@eslint-community/regexpp@4.12.2': {}
 
@@ -8368,7 +8371,6 @@ snapshots:
   '@img/sharp-wasm32@0.35.5':
     dependencies:
       '@emnapi/runtime': 1.11.3
-    optional: true
 
   '@img/sharp-webcontainers-wasm32@0.35.5':
     dependencies:
@@ -9576,7 +9578,7 @@ snapshots:
 
   setprototypeof@1.2.0: {}
 
-  sharp@0.35.5:
+  sharp@0.35.5(patch_hash=fa2da680b1e2eb89e3b2993d7e1dc20e675dd53a979b64e4beb298fbb1787a1c):
     dependencies:
       '@img/colour': 1.1.0
       detect-libc: 2.1.2

@@ -91,6 +91,18 @@ test('both release paths build native Linux and Windows ARM64 and require twelve
     for (const dependency of ['koffi', 'sharp', 'node-pty']) {
       assert.ok(step.includes(`require('${dependency}')`), `${file}: missing ${dependency} smoke`)
     }
+    // Electron + Linux 的 sharp 走 wasm（patch sharp@0.35.5），两条分支都要在 Linux 上真解码。
+    const sharpSmoke = source.indexOf('- name: Verify patched sharp on Linux')
+    assert.ok(sharpSmoke > prune, `${file}: sharp wasm smoke must run after pruning`)
+    const sharpStep = source.slice(sharpSmoke, source.indexOf('- name: Verify deployed Linux ARM64 runtime', sharpSmoke))
+    assert.match(sharpStep, /if: runner\.os == 'Linux'/, `${file}: sharp smoke must be Linux-only`)
+    assert.match(sharpStep, /smoke-sharp-electron-linux\.mjs --dir=\. --expect=native/, `${file}: native branch smoke missing`)
+    // npm 路径带着补丁，必须断言 wasm 分支；源码路径按上游 tag 原样构建，只报告实际分支。
+    const electronExpect = file === 'release.yml' ? 'wasm' : 'any'
+    assert.ok(
+      sharpStep.includes(`smoke-sharp-electron-linux.mjs --dir=. --electron --expect=${electronExpect}`),
+      `${file}: electron branch smoke must use --expect=${electronExpect}`,
+    )
     assert.match(step, /node node_modules\/@deepseek-ai\/dsh\/lib\/bin\.js web --help/)
   }
 })

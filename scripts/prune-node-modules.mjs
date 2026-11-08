@@ -22,7 +22,7 @@
 // 注意：绝不删除 *.d.ts。类型声明是小文件，且少数包在运行时通过 `types`
 // 条件解析它们，删掉的风险大于收益。同理只删真正的测试目录，不用
 // `*.test.*` 通配（可能命中运行时代码）。
-import { readdirSync, rmSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 const args = process.argv.slice(2)
@@ -286,6 +286,30 @@ function prune() {
   return { files, bytes }
 }
 
+// ---------------------------------------------------------------------------
+// 平台专属包：@img/sharp-wasm32 只在 Linux 的 Electron 里被用到（sharp 原生
+// 二进制与 Electron 的系统 GLib 符号冲突，见 patch sharp@0.35.5）。它随
+// package.json 的 dependencies 装进每个平台，非 Linux 产物里是纯负担。
+// ---------------------------------------------------------------------------
+const PLATFORM_ONLY_PACKAGES = [{ name: '@img/sharp-wasm32', platforms: ['linux'] }]
+
+function prunePlatformOnly() {
+  const removed = []
+  for (const { name, platforms } of PLATFORM_ONLY_PACKAGES) {
+    if (platforms.includes(process.platform)) continue
+    const dir = join(root, ...name.split('/'))
+    if (!existsSync(dir)) continue
+    const stats = subtreeStats(dir)
+    try {
+      rmSync(dir, { recursive: true, force: true })
+      removed.push({ name, ...stats })
+    } catch {
+      // 与后缀规则一致：删不掉不中断打包
+    }
+  }
+  return removed
+}
+
 const before = scan()
 report('before', before)
 
@@ -299,6 +323,13 @@ console.log(
   `[prune-node-modules] 已删除 ${pruned.files} 个文件，释放 ${mib(pruned.bytes)} MiB ` +
     `(后缀 ${PRUNE_FILE_SUFFIXES.join('/')} + 目录 ${[...PRUNE_DIR_NAMES].join('/')})`,
 )
+
+for (const pkg of prunePlatformOnly()) {
+  console.log(
+    `[prune-node-modules] 已删除平台专属包 ${pkg.name}：${pkg.files} 个文件，释放 ${mib(pkg.bytes)} MiB ` +
+      `(当前平台 ${process.platform}，该包只在 ${PLATFORM_ONLY_PACKAGES.find((entry) => entry.name === pkg.name).platforms.join('/')} 上需要)`,
+  )
+}
 
 const after = scan()
 report('after', after)

@@ -93,6 +93,10 @@ npm 预检先[等待真实 tarball 可下载](<scripts/wait-for-npm-version.mjs>
 
 本地构建与两条发布路径均保留上游运行时代码，唯一例外是 [patches/](<patches/>) 里的一组固定补丁：renderer 的 `SlotOutlet` 导出、桌面插件页隐藏 `dsh-tauri-*`、OpenCode 会话 ID 请求头、未分组会话（不属于任何工作区但有自己 cwd 的会话）的 composer 可用性。这些原本由桌面端在启动时改写，烘进产物后才能让只读的 asar 核心正常运行。其余行为遵循打包所用的上游版本。Codex 错误因此可能包含原始 HTML 边缘响应正文，请将错误日志视为可能包含敏感信息。
 
+Linux 上在 Electron 里运行时，sharp 走 WebAssembly 副本而非原生 addon。Electron 的 Linux 二进制动态链接系统 GLib，把 `g_object_*` 暴露到进程全局；sharp 预编译的 libvips 自带静态 GLib 并导出同名符号，于是原生 addon 的 `g_object_unref` 绑到 Electron 那份，在 libuv 工作线程里段错误（[electron/electron#46323](https://github.com/electron/electron/issues/46323)，上游仍未修）。因此产物里的 `dist/sharp.cjs` 在 Linux + `process.versions.electron` 时先加载 [`@img/sharp-wasm32`](https://sharp.pixelplumbing.com/install#cross-platform)，加载失败才回落到原生二进制。纯 Node（ZIP 产物、SSH 会话）仍走原生二进制，性能不变；`@img/sharp-wasm32` 会在非 Linux 产物里被裁掉，linux-x64 与 linux-arm64 共用同一套机制，不需要任何架构专属二进制。
+
+WebAssembly 副本的堆上限是 2 GiB（`WebAssembly.Memory` 的 `maximum: 32768` 页），一张完整解码后的位图必须装得下：24,000 × 24,000 的 RGBA 需要 2,197 MiB，会直接报 `vips_image_write_to_memory: out of memory` 而解不出来。默认 `maxImagePixels` 是 64 Mpx（解码后 256 MiB），离这个上限很远；把它调到 500 Mpx 左右以上，Electron + Linux 下的图片准入会明确失败。这条路径上有意不回落原生 addon——加载它正是段错误的原因，所以报错就是预期结果。
+
 需要 LAN 访问时，请查阅所打包 CLI 的帮助，按对应版本的参数配置。较新的上游版本要求绑定一个具体的本机 IPv4 或 IPv6 地址，而不是 `0.0.0.0` 等通配地址；原 LAN 放行环境变量不再覆盖这一策略。
 
 `--trusted-host` 限制主机信任范围，不是认证机制。请妥善保管上游访问凭据，仅在可信网络启用 LAN。

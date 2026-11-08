@@ -27,6 +27,16 @@ export const PATCHES = [
     patch: '@deepseek-ai__dsh-llm-pi-ai@0.2.2-rc.1.patch',
     markers: ['/* dsh-tauri-desktop: OpenCode Go session header */', 'isOpenCodeRoute(options.provider, baseURL)'],
   },
+  {
+    name: 'sharp',
+    file: 'dist/sharp.cjs',
+    patch: 'sharp@0.35.5.patch',
+    // Electron + Linux 改用 WebAssembly 副本，绕开与 Electron 系统 GLib 的符号冲突。
+    markers: [
+      '/* dsh-tauri-desktop: Electron for Linux links the system GLib',
+      'if (!sharp && Boolean(process.versions.electron) && runtimePlatform.startsWith("linux")) {',
+    ],
+  },
 ]
 
 export function parseHunks(patch) {
