@@ -218,6 +218,17 @@ jobs:
         # 统一瘦身逻辑收敛到脚本里（跨平台支持），同时打印删除前后的体积构成。
         run: node ../../scripts/prune-node-modules.mjs --dir=node_modules
 
+      - name: Verify patched sharp on Linux
+        # 源码路径按上游 tag 原样构建，不带本仓库的补丁目录；这一步只确认部署出的 sharp
+        # 能解码，分支由产物里的加载器自行决定（--expect=any 只报告），缺少补丁不会拦发布。
+        if: runner.os == 'Linux'
+        shell: bash
+        working-directory: upstream/build_dir
+        run: |
+          set -euo pipefail
+          node ../../scripts/smoke-sharp-electron-linux.mjs --dir=. --expect=native
+          node ../../scripts/smoke-sharp-electron-linux.mjs --dir=. --electron --expect=any
+
       - name: Verify deployed Linux ARM64 runtime
         if: matrix.os == 'ubuntu-24.04-arm'
         shell: bash

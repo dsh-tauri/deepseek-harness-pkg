@@ -141,6 +141,20 @@ jobs:
         # 统一瘦身逻辑收敛到脚本里（跨平台支持），同时打印删除前后的体积构成。
         run: node ../scripts/prune-node-modules.mjs --dir=node_modules
 
+      - name: Verify patched sharp on Linux
+        # Linux 的 Electron 动态链接系统 GLib，与 sharp 预编译 libvips 自带的静态 GLib
+        # 符号同名，原生 addon 的 g_object_unref 绑到 Electron 那份后在工作线程里崩溃
+        # （electron/electron#46323）。patches/sharp@0.35.5.patch 让 Electron + Linux
+        # 先加载 @img/sharp-wasm32，这里把两条分支各真解一次图：普通 Node 必须仍走
+        # 原生二进制（ZIP 用户不掉性能），伪造 process.versions.electron 必须走 wasm。
+        if: runner.os == 'Linux'
+        shell: bash
+        working-directory: build_dir
+        run: |
+          set -euo pipefail
+          node ../scripts/smoke-sharp-electron-linux.mjs --dir=. --expect=native
+          node ../scripts/smoke-sharp-electron-linux.mjs --dir=. --electron --expect=wasm
+
       - name: Verify deployed Linux ARM64 runtime
         if: matrix.os == 'ubuntu-24.04-arm'
         shell: bash

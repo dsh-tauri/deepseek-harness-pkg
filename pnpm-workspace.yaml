@@ -19,3 +19,6 @@ patchedDependencies:
   '@deepseek-ai/dsh-client-ui-plugin-manager@>=0.2.2-rc.1': patches/@deepseek-ai__dsh-client-ui-plugin-manager@0.2.2-rc.1.patch
   '@deepseek-ai/dsh-client-ui-renderer@>=0.2.2-rc.1': patches/@deepseek-ai__dsh-client-ui-renderer@0.2.2-rc.1.patch
   '@deepseek-ai/dsh-llm-pi-ai@>=0.2.2-rc.1': patches/@deepseek-ai__dsh-llm-pi-ai@0.2.2-rc.1.patch
+  # sharp 在 Electron + Linux 下改用 WebAssembly 副本（见 patches/sharp@0.35.5.patch）；
+  # 纯 Node 仍走原生预编译二进制，其它平台/运行时行为不变。
+  'sharp@0.35.5': patches/sharp@0.35.5.patch
