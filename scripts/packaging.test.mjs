@@ -38,7 +38,9 @@ test('release workflows no longer carry the removed ad-hoc runtime patches', () 
 
   const sourceRelease = read('.github/workflows/release-from-source.yml')
   // 源码路径按上游 tag 原样构建，不套用 main 上的补丁；它只在 ZIP 里放 node_modules + package.json。
-  assert.doesNotMatch(sourceRelease, /\bpatches\b/)
+  // 只认本仓库的补丁目录与补丁脚本：上游自己的 patchedDependencies 与
+  // `--config.allow-unused-patches` 出现在这里并不代表套用了 main 的补丁。
+  assert.doesNotMatch(sourceRelease, /\bpatches\/|(?:apply|check)-core-patches/)
   assert.match(sourceRelease, /7z a [^\r\n]+ node_modules package\.json\r?$/m)
   assert.match(sourceRelease, /zip -r [^\r\n]+ node_modules package\.json\r?$/m)
 })
@@ -115,6 +117,36 @@ test('both release paths build native Linux and Windows ARM64 and require twelve
     )
     assert.match(step, /node node_modules\/@deepseek-ai\/dsh\/lib\/bin\.js web --help/)
   }
+})
+
+test('the source build deploys without failing on patches that do not apply', () => {
+  const source = read('.github/workflows/release-from-source.yml')
+  // 生产闭包不装上游根 workspace 的 devDependencies，它们的 patchedDependencies
+  // 匹配不到包；pnpm 11 把未使用的补丁当硬错误（run 43027685338）。
+  const deploy = source.slice(source.indexOf('- name: Deploy complete upstream runtime closure'), source.indexOf('- name: Replace deploy-time package links'))
+  assert.match(deploy, /pnpm deploy --filter dsh-python-runtime-closure --prod --legacy/, 'closure deploy must stay a prod deploy')
+  assert.ok(deploy.includes('--config.allow-unused-patches=true'), 'the deploy must allow unused patches, as upstream does')
+  // 例外只给 deploy：克隆下来的 workspace 里不许全局放宽，安装仍要拒绝未使用的补丁。
+  const layout = source.slice(source.indexOf('- name: Configure shippable upstream node_modules layout'), source.indexOf('- name: Install upstream dependencies'))
+  assert.ok(!layout.includes('allowUnusedPatches'), 'the cloned workspace must keep rejecting unused patches on install')
+})
+
+test('the source build replaces deploy-time links before zipping', () => {
+  const source = read('.github/workflows/release-from-source.yml')
+  // zip -r 会跟随目录链接：循环 workspace 依赖（cordis <-> cordis-plugin-include）
+  // 会无限展开（run 43066852450 扫了 88 秒也没产出 zip）。
+  const materialize = source.indexOf('- name: Replace deploy-time package links with real files')
+  const deploy = source.indexOf('- name: Deploy complete upstream runtime closure')
+  const archive = source.indexOf('- name: Create archive')
+  assert.ok(materialize > deploy, 'links must be materialized right after the deploy')
+  assert.ok(materialize < archive, 'links must be materialized before the ZIP')
+  const step = source.slice(materialize, source.indexOf('- name:', materialize + 10))
+  assert.ok(step.includes('scripts/materialize-deploy-links.mjs --dir=build_dir'), 'materialize step must run the packaging script')
+  // npm 发布路径同样在打包前清掉可能残留的链接。
+  const npmPath = read('.github/workflows/release.yml')
+  const npmMaterialize = npmPath.indexOf('- name: Replace deploy-time package links with real files')
+  assert.ok(npmMaterialize > npmPath.indexOf('- name: Deploy package'), 'the npm path must materialize links after its deploy')
+  assert.ok(npmMaterialize < npmPath.indexOf('- name: Create archive'), 'the npm path must materialize links before zipping')
 })
 
 test('backfill validates the tag and never recreates releases or overwrites assets', () => {

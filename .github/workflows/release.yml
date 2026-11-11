@@ -122,6 +122,15 @@ jobs:
           cd build_dir
           npm install --omit=dev
 
+      - name: Replace deploy-time package links with real files
+        shell: bash
+        # pnpm deploy can leave symbolic links in the tree while npm install
+        # materializes most of them; any that remain would make `zip -r` follow
+        # the link, and a cyclic workspace link expands without bound (see the
+        # source workflow's step). Dropping `.bin` links is safe: the ZIP ships
+        # no bin entries of its own.
+        run: node scripts/materialize-deploy-links.mjs --dir=build_dir
+
       - name: Verify core patches survived the deploy
         shell: bash
         # npm install 在 lockfile 与磁盘一致时只做校验，不会把已打补丁的包重解包；

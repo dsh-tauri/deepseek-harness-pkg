@@ -74,16 +74,6 @@ jobs:
           shamefullyHoist: true
           publicHoistPattern:
             - '*'
-          # The closure deploy below is `--prod`, so packages that only the
-          # workspace root or the desktop tooling depend on (@yao-pkg/pkg,
-          # app-builder-lib, exceljs, lexical, ...) are never installed and their
-          # pinned patchedDependencies entries match nothing. pnpm 11 treats an
-          # unmatched entry as a hard error (ERR_PNPM_UNUSED_PATCH), which is what
-          # failed run 43027685338; this build always uses the upstream tag as-is,
-          # so an entry that does not apply here is expected rather than a repack
-          # mistake. Keep it a warning instead of dropping the entries: they still
-          # document the upstream build.
-          allowUnusedPatches: true
           EOF
 
       - name: Install upstream dependencies
@@ -147,7 +137,29 @@ jobs:
         working-directory: upstream
         run: |
           set -euo pipefail
-          pnpm deploy --filter dsh-python-runtime-closure --prod build_dir --legacy
+          # The production closure does not install packages that only the
+          # workspace root or the desktop tooling depend on (@yao-pkg/pkg,
+          # app-builder-lib, exceljs, lexical, ...), so their pinned
+          # patchedDependencies entries match nothing. pnpm 11 treats an
+          # unmatched entry as a hard error (ERR_PNPM_UNUSED_PATCH), which failed
+          # run 43027685338 at this step. Upstream runs its own Python-closure
+          # deploy with the same flag (scripts/build-exe-for-python-sdk.ts), so
+          # the exception stays scoped to this command: installing the workspace
+          # still rejects an unused patch.
+          pnpm deploy --filter dsh-python-runtime-closure --prod --legacy \
+            --config.allow-unused-patches=true build_dir
+
+      - name: Replace deploy-time package links with real files
+        shell: bash
+        working-directory: upstream
+        # legacy deploy links workspace packages into the target node_modules, and
+        # a deploy target inside the workspace gets linked into its own
+        # node_modules. `zip -r` follows directory links, so upstream's cyclic
+        # workspaces (cordis <-> cordis-plugin-include) expanded without bound:
+        # run 43066852450 scanned for 88 s, emitted 2460 "name not matched"
+        # warnings and never produced an archive. Upstream materializes the same
+        # links in scripts/build-exe-for-python-sdk-staging.ts.
+        run: node ../../scripts/materialize-deploy-links.mjs --dir=build_dir
 
       - name: Arrange standalone package and command shim
         shell: bash
