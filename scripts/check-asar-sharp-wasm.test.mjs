@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { checkAsar } from './check-asar-sharp-wasm.mjs'
 
-const WASM_BYTES = Buffer.concat([Buffer.from([0x00, 0x61, 0x73, 0x6d]), Buffer.alloc(64)])
+// \0asm + 版本号 1 + 一段占位代码段字节。只写魔数不写版本号是无效模块。
+const WASM_BYTES = Buffer.concat([Buffer.from([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]), Buffer.alloc(64)])
 
 function buildAsar(files) {
   const header = { files: {} }
@@ -38,13 +39,29 @@ function buildAsar(files) {
   return Buffer.concat([prefix, json, Buffer.alloc(pad), ...bodies])
 }
 
-const patchedSharp = '// sharp\n/* dsh-tauri-desktop: Electron for Linux links the system GLib */\nmodule.exports = 1\n'
+// 和 patches/sharp@0.35.5.patch 落下的形状一致：标记 + 短路分支 + wasm 加载调用。
+const patchedSharp = `// sharp
+/* dsh-tauri-desktop: Electron for Linux links the system GLib */
+if (!sharp && Boolean(process.versions.electron) && runtimePlatform.startsWith("linux")) {
+  try {
+    sharp = require("@img/sharp-wasm32/sharp.node");
+  } catch (err) {
+    errors.push(err);
+  }
+}
+module.exports = 1
+`
 
 function wasmFiles(sharpSource = patchedSharp) {
   return {
     'node_modules/sharp/package.json': JSON.stringify({ name: 'sharp', version: '0.35.5' }),
     'node_modules/sharp/dist/sharp.cjs': sharpSource,
-    'node_modules/@img/sharp-wasm32/package.json': JSON.stringify({ name: '@img/sharp-wasm32', version: '0.35.5' }),
+    'node_modules/@img/sharp-wasm32/package.json': JSON.stringify({
+      name: '@img/sharp-wasm32',
+      version: '0.35.5',
+      exports: { './sharp.node': './index.cjs', './package': './package.json' }
+    }),
+    'node_modules/@img/sharp-wasm32/index.cjs': 'module.exports = require("./lib/sharp-wasm32-0.35.5.node.js")\n',
     'node_modules/@img/sharp-wasm32/lib/sharp-wasm32-0.35.5.node.wasm': WASM_BYTES,
     'node_modules/@emnapi/runtime/package.json': JSON.stringify({ name: '@emnapi/runtime', version: '1.11.3' })
   }
@@ -102,7 +119,53 @@ test('a truncated wasm file is rejected', () => {
   const { dir, path } = writeArchive(files)
   try {
     const result = checkAsar(path)
-    assert.ok(result.problems.some(problem => problem.includes('不是合法的 wasm 文件')), '非法 wasm 必须报出来')
+    assert.ok(result.problems.some(problem => problem.includes('不是合法的 wasm 模块')), '非法 wasm 必须报出来')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a wasm module without the version field is rejected', () => {
+  const files = wasmFiles()
+  files['node_modules/@img/sharp-wasm32/lib/sharp-wasm32-0.35.5.node.wasm'] = Buffer.concat([
+    Buffer.from([0x00, 0x61, 0x73, 0x6d]),
+    Buffer.alloc(64)
+  ])
+  const { dir, path } = writeArchive(files)
+  try {
+    assert.ok(checkAsar(path).problems.some(problem => problem.includes('不是合法的 wasm 模块')), '缺版本号的模块必须报出来')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a marker without the linux load branch is rejected', () => {
+  const files = wasmFiles('// sharp\n/* dsh-tauri-desktop: Electron for Linux links the system GLib */\nmodule.exports = 1\n')
+  const { dir, path } = writeArchive(files)
+  try {
+    const problems = checkAsar(path).problems
+    assert.ok(problems.some(problem => problem.includes('wasm 短路补丁')), '只有标记没有分支必须报出来')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a patched sharp whose wasm require call was rewritten is rejected', () => {
+  const files = wasmFiles(patchedSharp.replace('require("@img/sharp-wasm32/sharp.node")', 'require("@img/sharp-wasm32/other.node")'))
+  const { dir, path } = writeArchive(files)
+  try {
+    assert.ok(checkAsar(path).problems.some(problem => problem.includes('没有 require')), '加载调用被改坏必须报出来')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a wasm package missing its exports loader is rejected', () => {
+  const files = wasmFiles()
+  delete files['node_modules/@img/sharp-wasm32/index.cjs']
+  const { dir, path } = writeArchive(files)
+  try {
+    assert.ok(checkAsar(path).problems.some(problem => problem.includes('加载入口')), 'loader 缺失必须报出来')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

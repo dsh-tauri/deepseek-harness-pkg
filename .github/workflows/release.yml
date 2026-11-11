@@ -300,10 +300,12 @@ jobs:
         if: inputs.existing_release == ''
         run: |
           set -euo pipefail
-          # 不指定 --target，保持与 softprops/action-gh-release 一致的行为
-          # （新 tag 落在仓库默认分支上）。tag 一律新建：本次 run 的 tag 尚未
-          # 创建，历史 draft 已被上一步删除，所以这里的 tag 不会冲突。
+          # --target 显式指向本次构建用的提交。不指定时 tag 落在「创建时」的
+          # 默认分支 HEAD，构建期间若有人往 main 推了打包相关的改动，tag 就会
+          # 指到一份没进产物的提交上；sync-release 的「打包内容比对」以下一个
+          # tag 为基准，那样会把这部分改动误判成已经发布过。
           release_url="$(gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
             --title "Release-${DSH_VERSION}" \
             --notes "$(printf '%s\n' \
               '# DeepSeek Harness Desktop Packages' \

@@ -140,10 +140,23 @@ test('the sync workflow rebuilds when packaging content changed even if the npm 
   const source = read('.github/workflows/sync-release.yml')
   // 只认 npm 版本的话，发布之后才合进 main 的核心补丁就再也发不出去。
   assert.ok(source.includes('- name: Detect packaging changes'), 'sync must compare packaging content against the last release')
-  assert.ok(source.includes('git diff --name-only "${base}..HEAD" -- patches scripts pnpm-workspace.yaml .github/workflows'), 'packaging paths must be compared')
+  assert.ok(source.includes('git log --format='), 'packaging changes must be collected per commit')
+  assert.ok(source.includes('patches scripts pnpm-workspace.yaml .github/workflows package.json pnpm-lock.yaml'), 'lockfile changes must count as packaging changes')
+  assert.ok(source.includes('chore: sync version to '), 'the post-release version commit must be filtered out, otherwise every run rebuilds')
   assert.ok(source.includes('steps.packaging.outputs.changed') && source.includes('= "true" ]'), 'packaging changes must trigger a rebuild')
   // 比对需要能取到上一次的发布提交。
   assert.match(source, /fetch-depth: 0/)
+  // 查不到上一次发布或解析失败时必须失败，不能静默当成没变化。
+  assert.ok(source.includes('解析 ${last_tag} 对应的提交失败') && source.includes('exit 1'), 'tag resolution failures must fail the step')
+})
+
+test('the release tag points at the commit that was built', () => {
+  const source = read('.github/workflows/release.yml')
+  const step = source.slice(source.indexOf('- name: Create release'), source.indexOf('- name: Upload assets one by one with retry'))
+  // 不指定 --target 时 tag 落在「创建那一刻」的默认分支 HEAD；构建期间 main
+  // 前进了的话，tag 会指到没进产物的提交，后续的打包内容比对就失真了。
+  assert.ok(step.includes('gh release create "$TAG"'), 'release must be created by the CLI')
+  assert.ok(step.includes('--target "$GITHUB_SHA"'), 'the tag must point at the built commit')
 })
 
 test('removed patch scripts and their documentation links stay removed', () => {

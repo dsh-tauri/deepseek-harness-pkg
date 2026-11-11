@@ -12,9 +12,10 @@
 // 内容，历史上就出现过 asar 里少了 wasm 包、而 build_dir 是对的情况。这里直接按 asar
 // 的文件头格式读取成品，逐项断言：
 //   1. node_modules/sharp 存在，版本与 @img/sharp-wasm32 一致；
-//   2. node_modules/sharp/dist/sharp.cjs 带 wasm 短路补丁标记；
-//   3. node_modules/@img/sharp-wasm32/lib 下有合法的 .wasm 文件；
-//   4. node_modules/@emnapi/runtime 存在（wasm 包的运行时依赖）。
+//   2. node_modules/sharp/dist/sharp.cjs 带 wasm 短路补丁（分支 + 加载调用都要在）；
+//   3. node_modules/@img/sharp-wasm32 的 exports["./sharp.node"] 指向的文件在包里；
+//   4. node_modules/@img/sharp-wasm32/lib 下有合法 .wasm（魔数 + 版本号 1）；
+//   5. node_modules/@emnapi/runtime 存在（wasm 包的运行时依赖）。
 //
 // 不依赖 @electron/asar：按文件头格式直接读，零依赖、可离线运行。
 //
@@ -24,10 +25,14 @@
 //   node scripts/check-asar-sharp-wasm.mjs --asar=<产物.asar> --require-wasm=false
 //     只检查 sharp 补丁标记，不要求 wasm 包（源码发布路径按上游 tag 原样构建）。
 import { closeSync, openSync, readSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { posix, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { PATCHES, isPatched } from './core-patches.mjs'
 
-export const SHARP_MARKER = '/* dsh-tauri-desktop: Electron for Linux links the system GLib'
+const SHARP_PATCH = PATCHES.find(entry => entry.name === 'sharp')
+// 补丁在 dist/sharp.cjs 里插入的那行 wasm 加载调用；只有 if 分支而没有这行调用，
+// sharp 仍然拿不到 wasm 副本，等于没打补丁。
+const SHARP_WASM_REQUIRE = 'require("@img/sharp-wasm32/sharp.node")'
 
 const args = process.argv.slice(2)
 const argValue = (name, fallback) => {
@@ -56,6 +61,17 @@ export function readArchive(path) {
       closeSync(fd)
     }
   }
+}
+
+function resolveExport(exportsField, key) {
+  const value = exportsField === undefined || exportsField === null ? undefined : exportsField[key]
+  if (typeof value === 'string') return value
+  if (value !== null && typeof value === 'object') {
+    for (const condition of ['require', 'node', 'default']) {
+      if (typeof value[condition] === 'string') return value[condition]
+    }
+  }
+  return undefined
 }
 
 function findChild(node, parts) {
@@ -97,8 +113,14 @@ export function checkAsar(path, { requireWasm = true } = {}) {
   const sharpEntry = findEntry(archive.header, ['node_modules', 'sharp', 'dist', 'sharp.cjs'])
   if (sharpEntry === undefined) {
     problems.push('asar 内缺少 node_modules/sharp/dist/sharp.cjs')
-  } else if (!archive.read(sharpEntry).toString('utf8').includes(SHARP_MARKER)) {
-    problems.push('node_modules/sharp/dist/sharp.cjs 没有 Electron+Linux 的 wasm 短路补丁')
+  } else {
+    const source = archive.read(sharpEntry).toString('utf8')
+    // 只查标记不够：标记在、短路分支被删掉或加载调用被改坏，Linux 上照样回退不了。
+    if (SHARP_PATCH === undefined || !isPatched(source, SHARP_PATCH)) {
+      problems.push('node_modules/sharp/dist/sharp.cjs 没有 Electron+Linux 的 wasm 短路补丁')
+    } else if (!source.includes(SHARP_WASM_REQUIRE)) {
+      problems.push(`node_modules/sharp/dist/sharp.cjs 的 wasm 短路分支里没有 ${SHARP_WASM_REQUIRE}`)
+    }
   }
 
   let wasmVersion = null
@@ -107,9 +129,21 @@ export function checkAsar(path, { requireWasm = true } = {}) {
     if (wasmPackage === undefined) {
       problems.push('asar 内缺少 node_modules/@img/sharp-wasm32/package.json')
     } else {
-      wasmVersion = JSON.parse(archive.read(wasmPackage).toString('utf8')).version
+      const manifest = JSON.parse(archive.read(wasmPackage).toString('utf8'))
+      wasmVersion = manifest.version
       if (sharpVersion !== null && wasmVersion !== sharpVersion) {
         problems.push(`@img/sharp-wasm32 版本 ${wasmVersion} 与 sharp ${sharpVersion} 不一致`)
+      }
+      // require("@img/sharp-wasm32/sharp.node") 走 exports，落点是 index.cjs；
+      // 打包把 loader 弄丢的话，wasm 包在、二进制在，require 依然失败。
+      const loader = resolveExport(manifest.exports, './sharp.node')
+      if (loader === undefined) {
+        problems.push('@img/sharp-wasm32 的 exports 里没有 "./sharp.node"')
+      } else {
+        const loaderPath = posix.join('node_modules', '@img', 'sharp-wasm32', loader.replace(/^\.\//, ''))
+        if (findEntry(archive.header, loaderPath.split('/')) === undefined) {
+          problems.push(`asar 内缺少 @img/sharp-wasm32 的加载入口 ${loaderPath}`)
+        }
       }
     }
 
@@ -123,8 +157,12 @@ export function checkAsar(path, { requireWasm = true } = {}) {
       }
       for (const [name, binary] of binaries) {
         const bytes = archive.read(binary)
-        if (bytes.length < 4 || bytes[0] !== 0x00 || bytes[1] !== 0x61 || bytes[2] !== 0x73 || bytes[3] !== 0x6d) {
-          problems.push(`node_modules/@img/sharp-wasm32/lib/${name} 不是合法的 wasm 文件`)
+        // \0asm 之后 4 字节是版本号，规范目前只有 1。只比值不够：坏的二进制
+        // 也能对上魔数，版本号能挡掉明显无效的模块（完整校验要引 validator，不值当）。
+        const magic = bytes.length >= 8 && bytes.subarray(0, 4).equals(Buffer.from([0x00, 0x61, 0x73, 0x6d]))
+        const versionOne = magic && bytes.readUInt32LE(4) === 1
+        if (!versionOne) {
+          problems.push(`node_modules/@img/sharp-wasm32/lib/${name} 不是合法的 wasm 模块`)
         }
       }
     }
