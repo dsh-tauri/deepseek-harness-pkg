@@ -151,7 +151,7 @@ jobs:
 
       - name: Replace deploy-time package links with real files
         shell: bash
-        working-directory: upstream
+        working-directory: upstream/build_dir
         # legacy deploy links workspace packages into the target node_modules, and
         # a deploy target inside the workspace gets linked into its own
         # node_modules. `zip -r` follows directory links, so upstream's cyclic
@@ -159,7 +159,7 @@ jobs:
         # run 43066852450 scanned for 88 s, emitted 2460 "name not matched"
         # warnings and never produced an archive. Upstream materializes the same
         # links in scripts/build-exe-for-python-sdk-staging.ts.
-        run: node ../../scripts/materialize-deploy-links.mjs --dir=build_dir
+        run: node ../../scripts/materialize-deploy-links.mjs --dir=.
 
       - name: Arrange standalone package and command shim
         shell: bash

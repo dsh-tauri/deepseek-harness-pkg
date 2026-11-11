@@ -141,7 +141,10 @@ test('the source build replaces deploy-time links before zipping', () => {
   assert.ok(materialize > deploy, 'links must be materialized right after the deploy')
   assert.ok(materialize < archive, 'links must be materialized before the ZIP')
   const step = source.slice(materialize, source.indexOf('- name:', materialize + 10))
-  assert.ok(step.includes('scripts/materialize-deploy-links.mjs --dir=build_dir'), 'materialize step must run the packaging script')
+  // 脚本在本仓库的 scripts/ 下，而这一步的 cwd 是 upstream/build_dir：
+  // 写成 ../../scripts/ 之外的形式会找不到模块（run 43073294933）。
+  assert.ok(step.includes('working-directory: upstream/build_dir'), 'the materialize step must run from the deployed tree')
+  assert.ok(step.includes('node ../../scripts/materialize-deploy-links.mjs --dir=.'), 'materialize must resolve the script from the deployed tree')
   // npm 发布路径同样在打包前清掉可能残留的链接。
   const npmPath = read('.github/workflows/release.yml')
   const npmMaterialize = npmPath.indexOf('- name: Replace deploy-time package links with real files')
