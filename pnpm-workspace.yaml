@@ -22,3 +22,8 @@ patchedDependencies:
   # sharp 在 Electron + Linux 下改用 WebAssembly 副本（见 patches/sharp@0.35.5.patch）；
   # 纯 Node 仍走原生预编译二进制，其它平台/运行时行为不变。
   'sharp@0.35.5': patches/sharp@0.35.5.patch
+  # @vscode/ripgrep 1.18.0 只用 CJS require.resolve 定位 rg 二进制；Electron 的 asar
+  # 虚拟文件系统让这个路径“存在”却无法 spawn（ENOENT），桌面端的 grep/glob 整体失效
+  # （issue #23）。补丁改为优先走 ESM 解析、其次 .asar.unpacked、最后把二进制复制到
+  # 临时缓存目录（见 patches/@vscode__ripgrep@1.18.0.patch）；纯 Node 路径不变。
+  '@vscode/ripgrep@>=1.18.0': patches/@vscode__ripgrep@1.18.0.patch

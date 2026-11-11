@@ -95,6 +95,8 @@ npm 预检先[等待真实 tarball 可下载](<scripts/wait-for-npm-version.mjs>
 
 Linux 上在 Electron 里运行时，sharp 走 WebAssembly 副本而非原生 addon。Electron 的 Linux 二进制动态链接系统 GLib，把 `g_object_*` 暴露到进程全局；sharp 预编译的 libvips 自带静态 GLib 并导出同名符号，于是原生 addon 的 `g_object_unref` 绑到 Electron 那份，在 libuv 工作线程里段错误（[electron/electron#46323](https://github.com/electron/electron/issues/46323)，上游仍未修）。因此产物里的 `dist/sharp.cjs` 在 Linux + `process.versions.electron` 时先加载 [`@img/sharp-wasm32`](https://sharp.pixelplumbing.com/install#cross-platform)，加载失败才回落到原生二进制。纯 Node（ZIP 产物、SSH 会话）仍走原生二进制，性能不变；`@img/sharp-wasm32` 会在非 Linux 产物里被裁掉，linux-x64 与 linux-arm64 共用同一套机制，不需要任何架构专属二进制。
 
+在 asar 内核上，`grep` 与 `glob` 曾经全部失败并报 `ripgrep provider failure`：Electron 的归档文件系统会说包里那份 `rg` 二进制"存在"，但操作系统无法执行 `.asar` 文件内部的路径，`spawn` 最终以 `ENOENT` 结束（[issue #23](https://github.com/dsh-tauri/deepseek-harness-pkg/issues/23)）。[`@vscode/ripgrep`](<patches/@vscode__ripgrep@1.18.0.patch>) 原先只用 CJS `require.resolve` 定位该二进制，归档钩子无法介入物化。补丁改为优先走 ESM 解析，宿主若会把原生包物化到磁盘，拿到的就是真实路径；若解析结果仍在归档里，先看同名的 `.asar.unpacked` 目录，最后把二进制复制到系统临时目录下按内容哈希命名的文件夹。纯 Node 安装不受影响：路径里没有 `.asar` 时原样返回解析结果。
+
 WebAssembly 副本的堆上限是 2 GiB（`WebAssembly.Memory` 的 `maximum: 32768` 页），一张完整解码后的位图必须装得下：24,000 × 24,000 的 RGBA 需要 2,197 MiB，会直接报 `vips_image_write_to_memory: out of memory` 而解不出来。默认 `maxImagePixels` 是 64 Mpx（解码后 256 MiB），离这个上限很远；把它调到 500 Mpx 左右以上，Electron + Linux 下的图片准入会明确失败。这条路径上有意不回落原生 addon——加载它正是段错误的原因，所以报错就是预期结果。
 
 需要 LAN 访问时，请查阅所打包 CLI 的帮助，按对应版本的参数配置。较新的上游版本要求绑定一个具体的本机 IPv4 或 IPv6 地址，而不是 `0.0.0.0` 等通配地址；原 LAN 放行环境变量不再覆盖这一策略。

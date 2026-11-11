@@ -9,6 +9,7 @@ patchedDependencies:
   '@deepseek-ai/dsh-client-ui-plugin-manager@>=0.2.2-rc.1': b284be1eb5e6296ade6b3b8965670c6185c5ccbfc9ced242d9f22c0f7da38a80
   '@deepseek-ai/dsh-client-ui-renderer@>=0.2.2-rc.1': b8c6e099c1f9529e205e8ccf215fb91f8ec2aeff1711e362d17b01222b1088b7
   '@deepseek-ai/dsh-llm-pi-ai@>=0.2.2-rc.1': 24b9b9f6b6a0a265677b58c2c52287e1fc2f664c3b88f7a71ad62697d3fdd330
+  '@vscode/ripgrep@>=1.18.0': 6640bb90f18f887ae19914a7284aa3a88e192de500e0dd60821a1b89c9b5d586
   sharp@0.35.5: fa2da680b1e2eb89e3b2993d7e1dc20e675dd53a979b64e4beb298fbb1787a1c
 
 importers:
@@ -7395,7 +7396,7 @@ snapshots:
       '@deepseek-ai/dsh-tools': 0.2.2-rc.1(71e9b8099add9aaf7bb42662f07c41a3)
       '@deepseek-ai/dsh-working-directory': 0.2.2-rc.1(2e93c6a6b6944e263e4a70a777c66b49)
       '@deepseek-ai/schemastery': 3.19.0
-      '@vscode/ripgrep': 1.18.0
+      '@vscode/ripgrep': 1.18.0(patch_hash=6640bb90f18f887ae19914a7284aa3a88e192de500e0dd60821a1b89c9b5d586)
 
   '@deepseek-ai/dsh-tool-fs@0.2.2-rc.1(ea545e22ebd14bd3a1be4f236eec064a)':
     dependencies:
@@ -8690,7 +8691,7 @@ snapshots:
   '@vscode/ripgrep-win32-x64@1.18.0':
     optional: true
 
-  '@vscode/ripgrep@1.18.0':
+  '@vscode/ripgrep@1.18.0(patch_hash=6640bb90f18f887ae19914a7284aa3a88e192de500e0dd60821a1b89c9b5d586)':
     optionalDependencies:
       '@vscode/ripgrep-darwin-arm64': 1.18.0
       '@vscode/ripgrep-darwin-x64': 1.18.0

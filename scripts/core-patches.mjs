@@ -37,6 +37,16 @@ export const PATCHES = [
       'if (!sharp && Boolean(process.versions.electron) && runtimePlatform.startsWith("linux")) {',
     ],
   },
+  {
+    name: '@vscode/ripgrep',
+    file: 'lib/index.js',
+    patch: '@vscode__ripgrep@1.18.0.patch',
+    // asar 内的 rg 二进制无法 spawn：改为 ESM 解析 / .asar.unpacked / 复制出归档。
+    markers: [
+      'dsh-tauri-desktop: Electron serves a native package stored inside an',
+      'function resolveBinary(specifier) {',
+    ],
+  },
 ]
 
 export function parseHunks(patch) {
