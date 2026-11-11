@@ -33,11 +33,62 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # 要和上一次的发布 tag 比对打包内容，必须能取到那个提交。
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22.22.0
+
+      - name: Detect packaging changes
+        id: packaging
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # 上一次发布的 tag 和当前 main 比一比：打包相关的内容（核心补丁、脚本、
+          # 依赖、workflow、lockfile）变了就重新出包，哪怕 npm 版本没变。
+          # 起因：sharp 的 wasm 回退是在 0.2.2-rc.1 发布之后才合进 main 的，而同步
+          # 只认 npm 版本，于是那份产物一直发不出去，Linux 上的图片能力全废。
+          #
+          # 查不到上一次发布、或解析失败时必须直接失败：静默当成「没变化」会跳过
+          # 一次本该发生的构建，而且会一直跳下去。
+          last_tag="$(gh release list --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName')"
+
+          changed_packaging="false"
+          if [ -z "$last_tag" ]; then
+            echo "没有已发布的 tag，跳过打包内容比对"
+          else
+            base="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${last_tag}" --jq '.object.sha')"
+            if [ "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${last_tag}" --jq '.object.type')" = "tag" ]; then
+              base="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${base}" --jq '.object.sha')"
+            fi
+            if [ -z "$base" ] || [ "$base" = "null" ]; then
+              echo "解析 ${last_tag} 对应的提交失败" >&2
+              exit 1
+            fi
+
+            # 逐提交判断而不是直接 diff 内容：发布后 update-main 会提交一次
+            # 「chore: sync version to <v>」，它同时改写 package.json 与
+            # pnpm-lock.yaml。若按内容 diff，这次提交每次都会被当成打包变化，
+            # 于是每 6 小时重建一轮，永远停不下来。按提交过滤即可排除它。
+            #
+            # lockfile 也要看：pnpm-lock.yaml 里的解析结果直接决定产物内容，
+            # 只有 lockfile 变化（依赖解析更新）时同样需要重新出包。
+            commits="$(git log --format='%H %s' "${base}..HEAD" -- \
+              patches scripts pnpm-workspace.yaml .github/workflows package.json pnpm-lock.yaml)"
+            meaningful="$(printf '%s\n' "$commits" | grep -vE '^[0-9a-f]+ chore: sync version to ' || true)"
+            if [ -n "$meaningful" ]; then
+              changed_packaging="true"
+              echo "上次发布（${last_tag}）之后打包相关内容有改动："
+              echo "$meaningful"
+            fi
+          fi
+          echo "changed=$changed_packaging" >> "$GITHUB_OUTPUT"
 
       - name: Resolve target version
         id: resolve
@@ -70,7 +121,7 @@ jobs:
           echo "last released version: ${last:-<none>}"
 
           changed="false"
-          if [ "$target" != "$last" ] || [ "${{ github.event.inputs.force }}" = "true" ]; then
+          if [ "$target" != "$last" ] || [ "${{ github.event.inputs.force }}" = "true" ] || [ "${{ steps.packaging.outputs.changed }}" = "true" ]; then
             changed="true"
           fi
           echo "changed: $changed"
