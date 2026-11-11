@@ -33,11 +33,57 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # 要和上一次的发布 tag 比对打包内容，必须能取到那个提交。
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22.22.0
+
+      - name: Detect packaging changes
+        id: packaging
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # 上一次发布的 tag 和当前 main 比一比：打包相关的内容（核心补丁、脚本、
+          # 依赖、workflow）变了就重新出包，哪怕 npm 版本没变。
+          # 起因：sharp 的 wasm 回退是在 0.2.2-rc.1 发布之后才合进 main 的，而同步
+          # 只认 npm 版本，于是那份产物一直发不出去，Linux 上的图片能力全废。
+          changed_packaging="false"
+          last_tag="$(gh release list --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)"
+          if [ -z "$last_tag" ]; then
+            echo "没有找到已发布的 tag，跳过打包内容比对"
+          else
+            base="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${last_tag}" --jq '.object.sha' 2>/dev/null || true)"
+            if [ -n "$base" ] && [ "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${last_tag}" --jq '.object.type' 2>/dev/null || true)" = "tag" ]; then
+              base="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${base}" --jq '.object.sha' 2>/dev/null || true)"
+            fi
+            if [ -z "$base" ]; then
+              echo "解析 ${last_tag} 对应的提交失败，跳过打包内容比对"
+            else
+              files="$(git diff --name-only "${base}..HEAD" -- patches scripts pnpm-workspace.yaml .github/workflows || true)"
+              # package.json 只看依赖：同步流程每次发布后都会把自身 version 与
+              # @deepseek-ai/dsh 依赖改写并提交，若把它们算进去就会每 6 小时重建一次。
+              deps="$(git diff "${base}..HEAD" -- package.json | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -v '"version"' | grep -v '"@deepseek-ai/dsh"' || true)"
+              if [ -n "$files" ] || [ -n "$deps" ]; then
+                changed_packaging="true"
+                echo "上次发布（${last_tag}）之后打包相关内容有改动："
+                if [ -n "$files" ]; then
+                  echo "$files"
+                fi
+                if [ -n "$deps" ]; then
+                  echo "package.json 依赖有改动："
+                  echo "$deps"
+                fi
+              fi
+            fi
+          fi
+          echo "changed=$changed_packaging" >> "$GITHUB_OUTPUT"
 
       - name: Resolve target version
         id: resolve
@@ -70,7 +116,7 @@ jobs:
           echo "last released version: ${last:-<none>}"
 
           changed="false"
-          if [ "$target" != "$last" ] || [ "${{ github.event.inputs.force }}" = "true" ]; then
+          if [ "$target" != "$last" ] || [ "${{ github.event.inputs.force }}" = "true" ] || [ "${{ steps.packaging.outputs.changed }}" = "true" ]; then
             changed="true"
           fi
           echo "changed: $changed"

@@ -222,6 +222,16 @@ jobs:
           # asar list 在 Windows 上打印反斜杠路径，先归一化再断言入口文件在里面。
           # 不用 grep -q：它匹配到就退出，tr 写 stdout 收到 SIGPIPE，pipefail 下整步失败。
           pnpm dlx @electron/asar@4.3.1 list "$asar" | tr '\\' '/' | grep -F '/node_modules/@deepseek-ai/dsh/lib/bin.js' > /dev/null
+          # 断言成品 asar 真的带上了 Electron+Linux 需要的 wasm 回退。build_dir 里
+          # smoke 通过不等于 pack 出来的 asar 里有：历史上就发布过 asar 里少了
+          # @img/sharp-wasm32 的产物，而桌面端只在 asar 内存在该包时才放行 sharp，
+          # 结果 Linux 上的图片能力整体不可用。非 Linux 产物按平台裁掉了 wasm 包
+          # （scripts/prune-node-modules.mjs），只校验补丁标记。
+          case "${{ matrix.os }}" in
+            ubuntu-*) wasm_flag=--require-wasm=true ;;
+            *) wasm_flag=--require-wasm=false ;;
+          esac
+          node scripts/check-asar-sharp-wasm.mjs --asar="$asar" "$wasm_flag"
           case "${{ matrix.os }}" in
             windows-*) 7z a "$asar.zip" "$asar" > /dev/null ;;
             *) zip -q -r "$asar.zip" "$asar" ;;

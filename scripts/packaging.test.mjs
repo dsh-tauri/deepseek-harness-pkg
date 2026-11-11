@@ -79,6 +79,16 @@ test('both release paths build native Linux and Windows ARM64 and require twelve
     assert.match(source.slice(source.indexOf('- name: Upload')), /\*\.asar\.zip/, `${file}: asar zip not uploaded`)
     assert.match(source, /assets=\(\.\/artifacts\/\*\*\/\*\.zip\)/, `${file}: release assets must be zip-only`)
     assert.doesNotMatch(source, /artifacts\/\*\*\/\*\.asar\)/, `${file}: raw asar must not be published`)
+    // 成品 asar 必须真的带上 Electron+Linux 需要的 wasm 回退：桌面端只在 asar 内存在
+    // @img/sharp-wasm32 时才放行 sharp，缺了就等于整份产物没有图片能力。
+    // 只约束 npm 发布路径：源码路径按上游 tag 原样构建，既没有补丁也没有 wasm 包。
+    if (file === 'release.yml') {
+      assert.ok(asarStep.includes('check-asar-sharp-wasm.mjs --asar="$asar"'), `${file}: asar must be checked for the wasm fallback`)
+      assert.ok(asarStep.includes('ubuntu-*) wasm_flag=--require-wasm=true'), `${file}: Linux artifacts must require the wasm package`)
+      assert.ok(asarStep.includes('*) wasm_flag=--require-wasm=false'), `${file}: non-Linux artifacts must only require the sharp patch`)
+    } else {
+      assert.ok(!asarStep.includes('check-asar-sharp-wasm.mjs'), `${file}: source artifacts carry no wasm fallback and must not be checked for it`)
+    }
     const prune = source.indexOf('- name: Prune node_modules')
     assert.ok(prune >= 0, `${file}: prune step missing`)
     const smoke = source.indexOf('- name: Verify deployed Linux ARM64 runtime')
@@ -124,6 +134,16 @@ test('backfill validates the tag and never recreates releases or overwrites asse
   assert.match(source, /grep -qxF "\$\(basename "\$asset"\)" <<< "\$present" \|\| missing\+=\("\$asset"\)/)
   assert.match(source, /if \[ -n "\$EXISTING_RELEASE" \]; then[\s\S]*?upload_flags=\(\)/)
   assert.match(source, /gh release upload "\$TAG" "\$asset" "\$\{upload_flags\[@\]\}"/)
+})
+
+test('the sync workflow rebuilds when packaging content changed even if the npm version did not', () => {
+  const source = read('.github/workflows/sync-release.yml')
+  // 只认 npm 版本的话，发布之后才合进 main 的核心补丁就再也发不出去。
+  assert.ok(source.includes('- name: Detect packaging changes'), 'sync must compare packaging content against the last release')
+  assert.ok(source.includes('git diff --name-only "${base}..HEAD" -- patches scripts pnpm-workspace.yaml .github/workflows'), 'packaging paths must be compared')
+  assert.ok(source.includes('steps.packaging.outputs.changed') && source.includes('= "true" ]'), 'packaging changes must trigger a rebuild')
+  // 比对需要能取到上一次的发布提交。
+  assert.match(source, /fetch-depth: 0/)
 })
 
 test('removed patch scripts and their documentation links stay removed', () => {
