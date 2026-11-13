@@ -182,7 +182,9 @@ jobs:
           npm pkg set "dependencies.@deepseek-ai/dsh=$TARGET"
           # 本仓库自身 version 同步为该版本
           npm version "$TARGET" --no-git-tag-version --allow-same-version
-          # 同步 lockfile（--lockfile-only 只重算解析，不构建；allowUnusedPatches 忽略旧版本补丁）
+          # 同步 lockfile（--lockfile-only 只重算解析，不构建）。
+          # 本仓库不再有 patchedDependencies：核心补丁在 deploy 之后按锚点套到产物上，
+          # 与 dsh 版本无关，所以这里不需要 allowUnusedPatches 之类的放宽。
           pnpm install --lockfile-only --ignore-scripts
 
       - name: Commit and push to main

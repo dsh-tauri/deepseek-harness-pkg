@@ -39,7 +39,7 @@ function buildAsar(files) {
   return Buffer.concat([prefix, json, Buffer.alloc(pad), ...bodies])
 }
 
-// 和 patches/sharp@0.35.5.patch 落下的形状一致：标记 + 短路分支 + wasm 加载调用。
+// 和 patches/sharp.mjs 落下的形状一致：标记 + 短路分支 + wasm 加载调用。
 const patchedSharp = `// sharp
 /* dsh-tauri-desktop: Electron for Linux links the system GLib */
 if (!sharp && Boolean(process.versions.electron) && runtimePlatform.startsWith("linux")) {

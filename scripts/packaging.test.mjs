@@ -6,22 +6,33 @@ import { spawnSync } from 'node:child_process'
 const root = new URL('../', import.meta.url)
 const read = path => readFileSync(new URL(path, root), 'utf8')
 
-test('local builds deploy upstream production dependencies plus the pinned core patches', () => {
+test('core patches are version-agnostic and applied to the deploy output', () => {
   const manifest = JSON.parse(read('package.json'))
   assert.equal(manifest.scripts.build, 'pnpm deploy --filter . --prod build_dir --legacy')
   assert.equal(manifest.pnpm?.patchedDependencies, undefined)
   const workspace = read('pnpm-workspace.yaml')
-  assert.match(workspace, /^patchedDependencies:$/m, '核心补丁必须在 pnpm-workspace.yaml 注册')
+  // pnpm patchedDependencies 必须写死「包名@版本范围」，且补丁是严格的逐行 diff：
+  // 上游一发 0.2.2-rc.2 就 ERR_PNPM_PATCH_FAILED（run 43324486759）。
+  assert.doesNotMatch(workspace, /^patchedDependencies:/m, '核心补丁不能再走 pnpm patchedDependencies')
 
-  // Keep desktop runtime patches on an open-ended lower-bound range so future
-  // core releases continue to receive them.
-  for (const name of [
-    '@deepseek-ai/dsh-client-ui-renderer',
-    '@deepseek-ai/dsh-client-ui-plugin-manager',
-    '@deepseek-ai/dsh-client-ui-conversation',
-    '@deepseek-ai/dsh-llm-pi-ai',
-  ]) {
-    assert.ok(workspace.includes(`'${name}@>=0.2.2-rc.1':`), `${name} must keep an open-ended patch range`)
+  // 补丁文件名、内容里都不许绑版本：任何 dsh 版本都套同一份锚点补丁。
+  const patches = readdirSync(new URL('patches/', root)).sort()
+  assert.deepEqual(patches, [
+    'dsh-client-ui-plugin-manager.mjs',
+    'dsh-client-ui-renderer.mjs',
+    'sharp.mjs',
+    'vscode-ripgrep.mjs',
+  ])
+  for (const file of patches) {
+    assert.doesNotMatch(file, /\d+\.\d+\.\d+/u, `${file}: 补丁文件名不能带版本号`)
+    assert.match(read(`patches/${file}`), /^export default \{/m, `${file}: 补丁必须是可执行的锚点补丁`)
+  }
+
+  // 已经不需要的两个桌面补丁必须彻底删除（连带引用）。
+  for (const gone of ['dsh-llm-pi-ai', 'dsh-client-ui-conversation']) {
+    assert.ok(!workspace.includes(gone), `pnpm-workspace.yaml 仍引用 ${gone}`)
+    for (const file of patches) assert.ok(!read(`patches/${file}`).includes(gone), `${file} 仍引用 ${gone}`)
+    for (const doc of ['README.md', 'README.zh.md']) assert.ok(!read(doc).includes(gone), `${doc} 仍引用 ${gone}`)
   }
 })
 
@@ -37,12 +48,49 @@ test('release workflows no longer carry the removed ad-hoc runtime patches', () 
   }
 
   const sourceRelease = read('.github/workflows/release-from-source.yml')
-  // 源码路径按上游 tag 原样构建，不套用 main 上的补丁；它只在 ZIP 里放 node_modules + package.json。
-  // 只认本仓库的补丁目录与补丁脚本：上游自己的 patchedDependencies 与
-  // `--config.allow-unused-patches` 出现在这里并不代表套用了 main 的补丁。
-  assert.doesNotMatch(sourceRelease, /\bpatches\/|(?:apply|check)-core-patches/)
+  // 源码路径与 npm 路径用同一套补丁：桌面端拿到的内核必须是同一份「打过补丁」的运行时。
   assert.match(sourceRelease, /7z a [^\r\n]+ node_modules package\.json\r?$/m)
   assert.match(sourceRelease, /zip -r [^\r\n]+ node_modules package\.json\r?$/m)
+})
+
+test('both release paths apply the same version-agnostic patches to the deploy output', () => {
+  for (const file of ['release.yml', 'release-from-source.yml']) {
+    const source = read(`.github/workflows/${file}`)
+    const apply = source.indexOf('- name: Apply core patches to the deploy output')
+    const check = source.indexOf('- name: Verify core patches survived the deploy')
+    assert.ok(apply > 0, `${file}: 缺少套用核心补丁的步骤`)
+    assert.ok(check > apply, `${file}: 补丁校验必须在套用之后`)
+    // 补丁必须落在 deploy 产物上：npm 路径在 materialize 之后（npm install 会把包重新
+    // 物化），源码路径在 deploy 链接解引用之后。
+    assert.ok(apply > source.indexOf('- name: Replace deploy-time package links with real files'), `${file}: 补丁必须在部署链接解引用之后`)
+    assert.ok(apply < source.indexOf('- name: Create archive'), `${file}: 补丁必须在打包之前`)
+    const applyStep = source.slice(apply, source.indexOf('- name:', apply + 10))
+    const checkStep = source.slice(check, source.indexOf('- name:', check + 10))
+    assert.match(applyStep, /apply-core-patches\.mjs --dir=/, `${file}: 补丁步骤必须调用 apply-core-patches`)
+    assert.match(checkStep, /check-core-patches\.mjs --dir=/, `${file}: 补丁校验步骤必须调用 check-core-patches`)
+    // 补丁对不上时必须失败：脚本自身非 0 退出，不允许 `|| true` 之类的降级。
+    assert.doesNotMatch(applyStep, /\|\|\s*true|continue-on-error/, `${file}: 补丁失败不能降级`)
+    assert.doesNotMatch(checkStep, /\|\|\s*true|continue-on-error/, `${file}: 补丁校验失败不能降级`)
+  }
+  // 源码路径的 cwd 是 upstream/build_dir，脚本必须按相对路径解析到本仓库的 scripts/。
+  const sourceRelease = read('.github/workflows/release-from-source.yml')
+  assert.match(sourceRelease, /working-directory: upstream\/build_dir[\s\S]{0,200}node \.\.\/\.\.\/scripts\/apply-core-patches\.mjs --dir=\./)
+  assert.match(sourceRelease, /working-directory: upstream\/build_dir[\s\S]{0,200}node \.\.\/\.\.\/scripts\/check-core-patches\.mjs --dir=\./)
+})
+
+test('both release paths ship a sharp wasm copy that matches the installed sharp', () => {
+  const npmPath = read('.github/workflows/release.yml')
+  // sharp 补丁只在 Electron + Linux 上 require("@img/sharp-wasm32")，而 wasm 包的
+  // index.cjs 会校验自身版本；写死 0.35.5 会在上游升级 sharp 时悄悄失效。
+  const align = npmPath.slice(npmPath.indexOf('- name: Align @img/sharp-wasm32 with the installed sharp'))
+  assert.match(align, /require\('\.\/node_modules\/sharp\/package\.json'\)\.version/, 'npm path must read the installed sharp version')
+  assert.match(align, /pnpm add "@img\/sharp-wasm32@\$\{version\}" --save-exact/, 'npm path must pin the wasm package to that version')
+
+  const sourcePath = read('.github/workflows/release-from-source.yml')
+  assert.ok(sourcePath.includes("require('./node_modules/sharp/package.json').version"), 'source path must read the installed sharp version')
+  // 部署根只声明直接依赖，wasm 包不显式钉进去就不会进闭包，Linux 上等于没补丁。
+  assert.ok(sourcePath.includes("manifest.dependencies['@img/sharp-wasm32'] = process.env.SHARP_VERSION"), 'source path must add the wasm package to the closure')
+  assert.ok(sourcePath.includes('SHARP_VERSION="$(node -p "require(\'./node_modules/sharp/package.json\').version")"'), 'the closure pin must use the installed sharp version')
 })
 
 test('both release paths build native Linux and Windows ARM64 and require twelve assets', () => {
@@ -83,14 +131,10 @@ test('both release paths build native Linux and Windows ARM64 and require twelve
     assert.doesNotMatch(source, /artifacts\/\*\*\/\*\.asar\)/, `${file}: raw asar must not be published`)
     // 成品 asar 必须真的带上 Electron+Linux 需要的 wasm 回退：桌面端只在 asar 内存在
     // @img/sharp-wasm32 时才放行 sharp，缺了就等于整份产物没有图片能力。
-    // 只约束 npm 发布路径：源码路径按上游 tag 原样构建，既没有补丁也没有 wasm 包。
-    if (file === 'release.yml') {
-      assert.ok(asarStep.includes('check-asar-sharp-wasm.mjs --asar="$asar"'), `${file}: asar must be checked for the wasm fallback`)
-      assert.ok(asarStep.includes('ubuntu-*) wasm_flag=--require-wasm=true'), `${file}: Linux artifacts must require the wasm package`)
-      assert.ok(asarStep.includes('*) wasm_flag=--require-wasm=false'), `${file}: non-Linux artifacts must only require the sharp patch`)
-    } else {
-      assert.ok(!asarStep.includes('check-asar-sharp-wasm.mjs'), `${file}: source artifacts carry no wasm fallback and must not be checked for it`)
-    }
+    // 两条发布路径都套同一份 sharp 补丁、都按 sharp 版本把 wasm 包装进闭包，所以都要校验。
+    assert.ok(asarStep.includes('check-asar-sharp-wasm.mjs --asar="$asar"'), `${file}: asar must be checked for the wasm fallback`)
+    assert.ok(asarStep.includes('ubuntu-*) wasm_flag=--require-wasm=true'), `${file}: Linux artifacts must require the wasm package`)
+    assert.ok(asarStep.includes('*) wasm_flag=--require-wasm=false'), `${file}: non-Linux artifacts must only require the sharp patch`)
     const prune = source.indexOf('- name: Prune node_modules')
     assert.ok(prune >= 0, `${file}: prune step missing`)
     const smoke = source.indexOf('- name: Verify deployed Linux ARM64 runtime')
@@ -109,11 +153,10 @@ test('both release paths build native Linux and Windows ARM64 and require twelve
     const sharpStep = source.slice(sharpSmoke, source.indexOf('- name: Verify deployed Linux ARM64 runtime', sharpSmoke))
     assert.match(sharpStep, /if: runner\.os == 'Linux'/, `${file}: sharp smoke must be Linux-only`)
     assert.match(sharpStep, /smoke-sharp-electron-linux\.mjs --dir=\. --expect=native/, `${file}: native branch smoke missing`)
-    // npm 路径带着补丁，必须断言 wasm 分支；源码路径按上游 tag 原样构建，只报告实际分支。
-    const electronExpect = file === 'release.yml' ? 'wasm' : 'any'
+    // 两条路径都带着 sharp 补丁和 @img/sharp-wasm32，Electron 分支必须真的走 wasm。
     assert.ok(
-      sharpStep.includes(`smoke-sharp-electron-linux.mjs --dir=. --electron --expect=${electronExpect}`),
-      `${file}: electron branch smoke must use --expect=${electronExpect}`,
+      sharpStep.includes('smoke-sharp-electron-linux.mjs --dir=. --electron --expect=wasm'),
+      `${file}: electron branch smoke must require the wasm copy`,
     )
     assert.match(step, /node node_modules\/@deepseek-ai\/dsh\/lib\/bin\.js web --help/)
   }

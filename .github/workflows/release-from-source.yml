@@ -94,7 +94,13 @@ jobs:
           # (`Cannot find package '@deepseek-ai/dsh-session-title-llm'`). Pin the
           # required workspace peers as direct deps of the closure manifest; the
           # regenerate install below bakes them into the lockfile before deploy.
-          node --input-type=module - <<'JS'
+          #
+          # `@img/sharp-wasm32` 同理：patches/sharp.mjs 让 Electron + Linux 优先
+          # require 它，而上游只把它当 sharp 的可选依赖，部署根不声明就不会进闭包。
+          # 版本必须与已安装的 sharp 完全一致（wasm 包的 index.cjs 会校验自身版本）。
+          SHARP_VERSION="$(node -p "require('./node_modules/sharp/package.json').version")"
+          echo "installed sharp ${SHARP_VERSION}"
+          SHARP_VERSION="$SHARP_VERSION" node --input-type=module - <<'JS'
           import { readFileSync, writeFileSync } from 'node:fs'
           const manifest = JSON.parse(readFileSync('python/sdk-runtime/package.json', 'utf8'))
           manifest.dependencies ||= {}
@@ -107,6 +113,7 @@ jobs:
           ]) {
             manifest.dependencies[name] ||= 'workspace:^'
           }
+          manifest.dependencies['@img/sharp-wasm32'] = process.env.SHARP_VERSION
           const sorted = {}
           for (const key of Object.keys(manifest.dependencies).sort()) sorted[key] = manifest.dependencies[key]
           manifest.dependencies = sorted
@@ -160,6 +167,18 @@ jobs:
         # warnings and never produced an archive. Upstream materializes the same
         # links in scripts/build-exe-for-python-sdk-staging.ts.
         run: node ../../scripts/materialize-deploy-links.mjs --dir=.
+
+      - name: Apply core patches to the deploy output
+        shell: bash
+        working-directory: upstream/build_dir
+        # 与 npm 发布路径同一套锚点补丁（scripts/apply-core-patches.mjs）：桌面端无论
+        # 拿到哪条路径的产物，内核都必须是同一份打过补丁的运行时。补丁对不上会失败。
+        run: node ../../scripts/apply-core-patches.mjs --dir=.
+
+      - name: Verify core patches survived the deploy
+        shell: bash
+        working-directory: upstream/build_dir
+        run: node ../../scripts/check-core-patches.mjs --dir=.
 
       - name: Arrange standalone package and command shim
         shell: bash
@@ -241,15 +260,14 @@ jobs:
         run: node ../../scripts/prune-node-modules.mjs --dir=node_modules
 
       - name: Verify patched sharp on Linux
-        # 源码路径按上游 tag 原样构建，不带本仓库的补丁目录；这一步只确认部署出的 sharp
-        # 能解码，分支由产物里的加载器自行决定（--expect=any 只报告），缺少补丁不会拦发布。
+        # 与 npm 路径同一份 sharp 补丁 + 同一个 wasm 包：两条分支都要真解码一次。
         if: runner.os == 'Linux'
         shell: bash
         working-directory: upstream/build_dir
         run: |
           set -euo pipefail
           node ../../scripts/smoke-sharp-electron-linux.mjs --dir=. --expect=native
-          node ../../scripts/smoke-sharp-electron-linux.mjs --dir=. --electron --expect=any
+          node ../../scripts/smoke-sharp-electron-linux.mjs --dir=. --electron --expect=wasm
 
       - name: Verify deployed Linux ARM64 runtime
         if: matrix.os == 'ubuntu-24.04-arm'
@@ -315,6 +333,12 @@ jobs:
           # asar list 在 Windows 上打印反斜杠路径，先归一化再断言入口文件在里面。
           # 不用 grep -q：它匹配到就退出，tr 写 stdout 收到 SIGPIPE，pipefail 下整步失败。
           pnpm dlx @electron/asar@4.3.1 list "$asar" | tr '\\' '/' | grep -F '/node_modules/@deepseek-ai/dsh/lib/bin.js' > /dev/null
+          # 与 npm 路径同一条断言：成品 asar 里必须有 sharp 补丁和 Linux 的 wasm 回退。
+          case "${{ matrix.os }}" in
+            ubuntu-*) wasm_flag=--require-wasm=true ;;
+            *) wasm_flag=--require-wasm=false ;;
+          esac
+          node scripts/check-asar-sharp-wasm.mjs --asar="$asar" "$wasm_flag"
           case "${{ matrix.os }}" in
             windows-*) 7z a "$asar.zip" "$asar" > /dev/null ;;
             *) zip -q -r "$asar.zip" "$asar" ;;

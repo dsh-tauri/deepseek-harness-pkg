@@ -1,3 +1,6 @@
 *.patch text eol=lf
 pnpm-lock.yaml text eol=lf
 *.sh text eol=lf
+# 补丁脚本里的模板字符串含真实换行：强制 LF，避免 Windows 检出后把 CRLF 注进产物。
+patches/*.mjs text eol=lf
+scripts/*.mjs text eol=lf

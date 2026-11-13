@@ -114,6 +114,22 @@ jobs:
           pnpm add "@deepseek-ai/dsh@${{ inputs.dsh_version || github.event.inputs.dsh_version }}" --save-exact
           pnpm install
 
+      - name: Align @img/sharp-wasm32 with the installed sharp
+        shell: bash
+        # patches/sharp.mjs 让 Electron + Linux 去 require("@img/sharp-wasm32")，
+        # 而 wasm 包的 index.cjs 会校验自身版本与 sharp 一致。上游换 sharp 版本时
+        # 这里自动跟随，别让一份过期的 wasm 包把 Linux 的图片能力悄悄废掉。
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./node_modules/sharp/package.json').version")"
+          current="$(node -p "require('./package.json').dependencies['@img/sharp-wasm32'] || ''")"
+          if [ "$version" = "$current" ]; then
+            echo "@img/sharp-wasm32 已与 sharp ${version} 一致"
+          else
+            echo "@img/sharp-wasm32 ${current:-<未声明>} -> ${version}"
+            pnpm add "@img/sharp-wasm32@${version}" --save-exact
+          fi
+
       - name: Deploy package
         shell: bash
         run: |
@@ -131,10 +147,18 @@ jobs:
         # no bin entries of its own.
         run: node scripts/materialize-deploy-links.mjs --dir=build_dir
 
+      - name: Apply core patches to the deploy output
+        shell: bash
+        # 补丁不在 install 阶段套（pnpm patchedDependencies 要求严格逐行 diff 且写死
+        # 版本范围，上游一换产物就 ERR_PNPM_PATCH_FAILED，run 43324486759），而是
+        # 在 deploy 完成、链接物化之后对产物做锚点改写。任何补丁对不上都会让这一步
+        # 失败 —— 不跳过、不降级。
+        run: node scripts/apply-core-patches.mjs --dir=build_dir
+
       - name: Verify core patches survived the deploy
         shell: bash
-        # npm install 在 lockfile 与磁盘一致时只做校验，不会把已打补丁的包重解包；
-        # 一旦上游发行方式变化让它开始覆盖，这一步会先失败，而不是把未打补丁的内核发出去。
+        # 补丁只改这一份产物；这一步是最后一道闸门：万一后续步骤把包重新物化回原版，
+        # 这里先失败，而不是把没打补丁的内核发出去。
         run: node scripts/check-core-patches.mjs --dir=build_dir
 
       - name: Report deploy footprint
@@ -153,7 +177,7 @@ jobs:
       - name: Verify patched sharp on Linux
         # Linux 的 Electron 动态链接系统 GLib，与 sharp 预编译 libvips 自带的静态 GLib
         # 符号同名，原生 addon 的 g_object_unref 绑到 Electron 那份后在工作线程里崩溃
-        # （electron/electron#46323）。patches/sharp@0.35.5.patch 让 Electron + Linux
+        # （electron/electron#46323）。patches/sharp.mjs 让 Electron + Linux
         # 先加载 @img/sharp-wasm32，这里把两条分支各真解一次图：普通 Node 必须仍走
         # 原生二进制（ZIP 用户不掉性能），伪造 process.versions.electron 必须走 wasm。
         if: runner.os == 'Linux'

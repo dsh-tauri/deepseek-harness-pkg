@@ -14,16 +14,11 @@ dangerouslyAllowAllBuilds: true
 # pnpm 11 默认的发布年龄门禁会拒绝“太新”的依赖，关闭它保证上游发布后立即可同步。
 minimumReleaseAge: 0
 
-patchedDependencies:
-  '@deepseek-ai/dsh-client-ui-conversation@>=0.2.2-rc.1': patches/@deepseek-ai__dsh-client-ui-conversation@0.2.2-rc.1.patch
-  '@deepseek-ai/dsh-client-ui-plugin-manager@>=0.2.2-rc.1': patches/@deepseek-ai__dsh-client-ui-plugin-manager@0.2.2-rc.1.patch
-  '@deepseek-ai/dsh-client-ui-renderer@>=0.2.2-rc.1': patches/@deepseek-ai__dsh-client-ui-renderer@0.2.2-rc.1.patch
-  '@deepseek-ai/dsh-llm-pi-ai@>=0.2.2-rc.1': patches/@deepseek-ai__dsh-llm-pi-ai@0.2.2-rc.1.patch
-  # sharp 在 Electron + Linux 下改用 WebAssembly 副本（见 patches/sharp@0.35.5.patch）；
-  # 纯 Node 仍走原生预编译二进制，其它平台/运行时行为不变。
-  'sharp@0.35.5': patches/sharp@0.35.5.patch
-  # @vscode/ripgrep 1.18.0 只用 CJS require.resolve 定位 rg 二进制；Electron 的 asar
-  # 虚拟文件系统让这个路径“存在”却无法 spawn（ENOENT），桌面端的 grep/glob 整体失效
-  # （issue #23）。补丁改为优先走 ESM 解析、其次 .asar.unpacked、最后把二进制复制到
-  # 临时缓存目录（见 patches/@vscode__ripgrep@1.18.0.patch）；纯 Node 路径不变。
-  '@vscode/ripgrep@>=1.18.0': patches/@vscode__ripgrep@1.18.0.patch
+# 刻意不配 patchedDependencies。
+#
+# 这里的补丁（patches/*.mjs）不绑定任何 dsh 版本，由
+# `node scripts/apply-core-patches.mjs --dir=build_dir` 在 deploy 之后套到产物上。
+# 走 pnpm 的 patchedDependencies 就必须写「包名@版本范围」并且提交严格的逐行 diff：
+# 上游一发 0.2.2-rc.2（client bundle 被压成单行），install 就直接
+# ERR_PNPM_PATCH_FAILED（run 43324486759）。锚点式补丁对版本、压缩都免疫，
+# 而且补丁对不上时打包会失败，不会静默跳过。

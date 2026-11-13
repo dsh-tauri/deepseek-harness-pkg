@@ -5,34 +5,49 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { PATCHES, applyUnifiedDiff, isPatched, parseHunks } from './core-patches.mjs'
+import { PATCHES, applyCorePatch, isPatched } from './core-patches.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const patch = readFileSync(join(root, 'patches', '@vscode__ripgrep@1.18.0.patch'), 'utf8')
 const entry = PATCHES.find(candidate => candidate.name === '@vscode/ripgrep')
 assert.ok(entry, 'core-patches.mjs 必须登记 @vscode/ripgrep')
 
-// 上游 lib/index.js 的原始片段（去掉补丁新增行），用作最小样本。
-const pristine = parseHunks(patch)
-  .flatMap(hunk => hunk.lines.filter(line => line.kind !== 'add').map(line => line.text))
-  .join('\n')
+// @vscode/ripgrep 1.18.0 的 lib/index.js（上游原样）。这个包不是构建产物，
+// 所以不存在压缩布局，样本即真实源码。
+const SAMPLE = [
+  "import { createRequire } from 'node:module';",
+  '',
+  'const require = createRequire(import.meta.url);',
+  '',
+  'const arch = process.env.npm_config_arch || process.arch;',
+  "const binaryName = process.platform === 'win32' ? 'rg.exe' : 'rg';",
+  'const platformPkg = `@vscode/ripgrep-${process.platform}-${arch}`;',
+  '',
+  'let resolved;',
+  'try {',
+  '    resolved = require.resolve(`${platformPkg}/bin/${binaryName}`);',
+  '} catch {',
+  '    throw new Error(',
+  '        `Could not find ${platformPkg}. ` +',
+  '        `Ensure optionalDependencies are installed for this platform (${process.platform}-${arch}).`',
+  '    );',
+  '}',
+  '',
+  'export const rgPath = resolved;',
+  '',
+].join('\n')
 
-const patched = applyUnifiedDiff(pristine, patch, entry.patch)
+const patched = applyCorePatch(SAMPLE, entry).source
 const installed = join(root, 'node_modules', '@vscode', 'ripgrep', 'lib', 'index.js')
 const binaryName = process.platform === 'win32' ? 'rg.exe' : 'rg'
 
 test('the ripgrep patch replaces the CJS-only resolution instead of adding a second path', () => {
-  assert.ok(patch.includes('--- a/lib/index.js'))
-  assert.ok(patch.includes('+++ b/lib/index.js'))
   // 上游唯一的解析行必须被替换掉：留着 require.resolve 就等于 asar 路径照旧。
   assert.ok(patched.includes('resolved = resolveBinary('))
   assert.ok(!patched.includes('resolved = require.resolve('))
-})
-
-test('the patch only changes resolution and keeps the exported contract', () => {
-  assert.ok(patched.includes('export const rgPath = resolved;'), 'rgPath 仍是具名导出')
-  // 补丁不许删掉上游任何一行：二进制名、平台包名和错误文案都原样保留。
-  assert.equal(parseHunks(patch).flatMap(hunk => hunk.lines.filter(line => line.kind === 'remove')).length, 1, '只应替换唯一的那行解析语句')
+  // 上游其它内容一行都不能少（二进制名、平台包名、错误文案）。
+  for (const line of SAMPLE.split('\n')) {
+    if (line !== '' && !line.includes('resolved = require.resolve(')) assert.ok(patched.includes(line), `补丁删掉了上游行: ${line}`)
+  }
 })
 
 test('the fallbacks stay ordered: ESM resolve, then unpacked sibling, then a copy out', () => {
@@ -50,33 +65,29 @@ test('the fallbacks stay ordered: ESM resolve, then unpacked sibling, then a cop
 })
 
 test('markers separate the patched module from the upstream one', () => {
-  assert.equal(isPatched(pristine, entry), false, '原始文件不应含任何标记')
+  assert.equal(isPatched(SAMPLE, entry), false, '原始文件不应含任何标记')
   assert.equal(isPatched(patched, entry), true, '打补丁后应含全部标记')
   for (const marker of entry.markers) {
-    assert.ok(!pristine.includes(marker), '标记在原文里已存在，缺少区分度: ' + marker)
+    assert.ok(!SAMPLE.includes(marker), `标记在原文里已存在，缺少区分度: ${marker}`)
   }
 })
 
 test('the patched module keeps the plain Node path and really runs rg', { skip: !existsSync(installed) }, () => {
-  const source = readFileSync(installed, 'utf8')
-  assert.equal(isPatched(source, entry), true, 'node_modules 里的 @vscode/ripgrep 没有补丁（pnpm-workspace.yaml 的 patchedDependencies 未生效？）')
-  // 这段只在真实上游文件上验证得到：补丁样本只含 hunk 上下文。
-  assert.ok(source.includes("const binaryName = process.platform === 'win32' ? 'rg.exe' : 'rg';"), '二进制名保持不变')
-  assert.ok(source.includes('const platformPkg = `@vscode/ripgrep-${process.platform}-${arch}`;'), '平台包名保持不变')
-  assert.ok(source.includes('Could not find ${platformPkg}'), '解析失败仍抛出同一条可诊断错误')
-  const result = probe(source, () => installed)
+  const patchedSource = patchedInstalled()
+  const result = probe(() => installed)
   const expected = join(root, 'node_modules', '@vscode', 'ripgrep-' + process.platform + '-' + process.arch, 'bin', binaryName)
   assert.equal(result.rgPath, expected)
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /^ripgrep /)
+  assert.ok(patchedSource.includes('resolveBinary'), '安装的模块必须能被补丁改写')
 })
 
 test('a binary that only resolves into an .asar archive is copied out and runs', { skip: !existsSync(installed) }, () => {
   const platformPkg = '@vscode/ripgrep-' + process.platform + '-' + process.arch
   const binary = join(root, 'node_modules', ...platformPkg.split('/'), 'bin', binaryName)
   if (!existsSync(binary)) return
-  const source = readFileSync(installed, 'utf8')
-  const result = probe(source, (dir) => {
+  const patchedSource = patchedInstalled()
+  const result = probe((dir) => {
     // 模拟 Electron 的 asar 布局：模块和平台包都在同一个 .asar 目录里，
     // 所以从模块解析出的二进制路径必然指向归档内部。
     const archive = join(dir, 'app.asar')
@@ -87,17 +98,24 @@ test('a binary that only resolves into an .asar archive is copied out and runs',
     const module = join(archive, 'node_modules', '@vscode', 'ripgrep', 'lib', 'index.js')
     mkdirSync(join(archive, 'node_modules', '@vscode', 'ripgrep', 'lib'), { recursive: true })
     writeFileSync(join(archive, 'node_modules', '@vscode', 'ripgrep', 'package.json'), JSON.stringify({ name: '@vscode/ripgrep', version: '1.18.0', type: 'module' }))
-    writeFileSync(module, source)
+    // 这里必须写补丁后的内容：写到模块里的是回调捕获的变量，不是 probe 的入参。
+    writeFileSync(module, patchedSource)
     return module
   })
+  assert.ok(!result.rgPath.includes('.asar'), '返回的路径不能还指向归档: ' + result.rgPath)
   assert.ok(result.rgPath.includes('dsh-ripgrep'), '应当把二进制复制出归档，实际 ' + result.rgPath)
-  assert.ok(!result.rgPath.includes('.asar'), '返回的路径不能还指向归档')
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /^ripgrep /)
 })
 
-// 把补丁后的模块落盘并真跑一次 rg。
-function probe(source, prepare) {
+// 安装的 @vscode/ripgrep 是上游原样（补丁在 deploy 之后才套），先按锚点补丁改写一遍。
+function patchedInstalled() {
+  const source = readFileSync(installed, 'utf8')
+  return isPatched(source, entry) ? source : applyCorePatch(source, entry).source
+}
+
+// 把给定模块落盘并真跑一次 rg。
+function probe(prepare) {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-ripgrep-patch-test-'))
   try {
     const module = prepare(dir)
