@@ -120,6 +120,18 @@ export function checkAsar(path, { requireWasm = true } = {}) {
       problems.push('node_modules/sharp/dist/sharp.cjs 没有 Electron+Linux 的 wasm 短路补丁')
     } else if (!source.includes(SHARP_WASM_REQUIRE)) {
       problems.push(`node_modules/sharp/dist/sharp.cjs 的 wasm 短路分支里没有 ${SHARP_WASM_REQUIRE}`)
+    } else {
+      // 位置也算契约：原生 switch 的每个 case 都无条件 `sharp = require(...)`，
+      // 短路块一旦落进保护 switch 的 `if (!sharp)` 里，wasm 会被原生二进制覆盖，
+      // 表现是两者都被加载（run 43351855853）。所以短路块与 switch 之间必须还隔着
+      // 那个包住 switch 的 `if (!sharp) { try {`。
+      const guard = source.indexOf(SHARP_PATCH.markers[1])
+      const nativeSwitch = source.indexOf('switch (runtimePlatform)')
+      const outside = guard !== -1 && nativeSwitch > guard
+        && /if \(!sharp\) \{\s*\n\s*try \{\s*$/u.test(source.slice(guard, nativeSwitch))
+      if (!outside) {
+        problems.push('node_modules/sharp/dist/sharp.cjs 的 wasm 短路块没有放在保护原生分派的 if (!sharp) 之外，实际会被原生二进制覆盖')
+      }
     }
   }
 

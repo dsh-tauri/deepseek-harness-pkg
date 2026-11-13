@@ -39,12 +39,24 @@ function buildAsar(files) {
   return Buffer.concat([prefix, json, Buffer.alloc(pad), ...bodies])
 }
 
-// 和 patches/sharp.mjs 落下的形状一致：标记 + 短路分支 + wasm 加载调用。
+// 和 patches/sharp.mjs 落下的形状一致：标记 + 短路分支 + wasm 加载调用，
+// 且短路块位于保护原生分派的 `if (!sharp)` 之外（在 switch 之前）。
 const patchedSharp = `// sharp
 /* dsh-tauri-desktop: Electron for Linux links the system GLib */
 if (!sharp && Boolean(process.versions.electron) && runtimePlatform.startsWith("linux")) {
   try {
     sharp = require("@img/sharp-wasm32/sharp.node");
+  } catch (err) {
+    errors.push(err);
+  }
+}
+if (!sharp) {
+  try {
+    switch (runtimePlatform) {
+      case "linux-x64":
+        sharp = require("@img/sharp-linux-x64/sharp.node");
+        break;
+    }
   } catch (err) {
     errors.push(err);
   }
@@ -166,6 +178,42 @@ test('a wasm package missing its exports loader is rejected', () => {
   const { dir, path } = writeArchive(files)
   try {
     assert.ok(checkAsar(path).problems.some(problem => problem.includes('加载入口')), 'loader 缺失必须报出来')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a wasm shortcut placed inside the native dispatch guard is rejected', () => {
+  // run 43351855853：短路块落进了保护 switch 的 if (!sharp) 里，switch 的 case
+  // 会把它覆盖回原生二进制，Linux 上等于没补丁 —— 标记和调用都在，也必须拦下。
+  const broken = `// sharp
+/* dsh-tauri-desktop: Electron for Linux links the system GLib */
+if (!sharp) {
+  try {
+    if (!sharp && Boolean(process.versions.electron) && runtimePlatform.startsWith("linux")) {
+      try {
+        sharp = require("@img/sharp-wasm32/sharp.node");
+      } catch (err) {
+        errors.push(err);
+      }
+    }
+    switch (runtimePlatform) {
+      case "linux-x64":
+        sharp = require("@img/sharp-linux-x64/sharp.node");
+        break;
+    }
+  } catch (err) {
+    errors.push(err);
+  }
+}
+module.exports = 1
+`
+  const { dir, path } = writeArchive(wasmFiles(broken))
+  try {
+    assert.ok(
+      checkAsar(path).problems.some(problem => problem.includes('没有放在保护原生分派的 if (!sharp) 之外')),
+      '短路块被塞进原生分派里必须报出来',
+    )
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
